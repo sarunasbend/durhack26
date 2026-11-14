@@ -82,3 +82,7 @@ class Composer(object):
         decoder = d.Decoder(self.configuration, self.scale)
         decoded = decoder.decode(song)
         return decoded
+
+    def stream_decode(self):
+        decoder = d.Decoder(self.configuration, self.scale)
+        return decoder

@@ -5,7 +5,13 @@ if __name__ == "__main__":
 
     composer = a.Composer("d", "major")
     encoded = composer.encode_message(message)
-    decoded = composer.decode_message(encoded)
+    # decoded = composer.decode_message(encoded)
+    decoded = ""
+    decoder = composer.stream_decode()
+    decoder.begin_decode()
+    for i in encoded:
+        decoder.add_to_stream(i)
+    decoded = decoder.stream_decoded
     print(decoded)
 
     message = message.strip()

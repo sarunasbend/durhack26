@@ -15,10 +15,27 @@ class Decoder(object):
         self.decoding_table = {}
         self.construct_decoding_table()
 
+        self.decode_stream = []
+        self.stream_decoded = ""
+
     def construct_decoding_table(self):
         permuter = Permuter(self.configuration.cluster_size, self.configuration.octaves, self.configuration.first_octave, self.notes, self.characters)
         self.decoding_table = permuter.construct_table()
         self.decoding_table = {",".join(value): key for key, value in self.decoding_table.items()}
+
+    def begin_decode(self):
+        self.decode_stream = []
+        self.decoded = ""
+
+    def decode_current_cluster(self):
+        self.stream_decoded += self.decoding_table[",".join(self.decode_stream)]
+        self.decode_stream = []
+
+    def add_to_stream(self, note):
+        self.decode_stream.append(note)
+        if len(self.decode_stream) < self.configuration.cluster_size:
+            return
+        self.decode_current_cluster()
 
     def decode(self, song):
         output_stream = ""
