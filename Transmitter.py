@@ -57,10 +57,10 @@ class Transmitter:
             pitch = self.calculatePitch(note)
 
             self.midi.addNote(track=track_num, channel=self.num_channel, 
-                              pitch=pitch, time=self.time, 
+                              pitch=pitch, time=self.time + idx, 
                               duration=self.duration, volume=self.volume)
 
-                    
+                
     # takes note and returns the pitch
     def calculatePitch(self, note):
         sharp = (len(note) == 3)
@@ -68,9 +68,9 @@ class Transmitter:
         if sharp:
             midiCode = self.notes_mapping[note[:2]]
         else:
-            mideCode = self.notes_mapping[note[:1]]
+            midiCode = self.notes_mapping[note[:1]]
 
-        octave = note[-1]
+        octave = int(note[-1])
 
         return midiCode + ((octave + 1) * 12)
 
