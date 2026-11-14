@@ -34,3 +34,11 @@ Matty: lulled by aliens
 Malachi: creating cluster based encoder
 Jack: reworking the receiver for new encoding system
 
+## 16:49
+Encoder and Decoder complete, working on transmitter
+
+Sarunas: making the speaker, transmitter mostly working
+Matty: off on a mission
+Malachi: connecting transmitter to encoder
+Jack: off on a mission
+
