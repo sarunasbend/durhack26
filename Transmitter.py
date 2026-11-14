@@ -54,11 +54,18 @@ class Transmitter:
         self.midi.addTempo(track=track_num, time=self.time, tempo=self.tempo)
 
         for idx, note in enumerate(notes):
-            pitch = self.calculatePitch(note)
 
-            self.midi.addNote(track=track_num, channel=self.num_channel, 
-                              pitch=pitch, time=self.time + idx, 
-                              duration=self.duration, volume=self.volume)
+            if isinstance(note, list):
+                for chord_note in note:
+                    pitch = self.calculatePitch(chord_note)
+                    self.midi.addNote(track=track_num, channel=self.num_channel, 
+                        pitch=pitch, time=self.time + idx, 
+                        duration=self.duration, volume=self.volume)
+            else:
+                pitch = self.calculatePitch(note)
+                self.midi.addNote(track=track_num, channel=self.num_channel, 
+                                pitch=pitch, time=self.time + idx, 
+                                duration=self.duration, volume=self.volume)
 
                 
     # takes note and returns the pitch
