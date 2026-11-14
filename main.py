@@ -41,7 +41,7 @@ if __name__ == "__main__":
     transmitter.config()
 
     transmitter.tempo = 200
-    transmitter.drone = "C3"
+    # transmitter.drone = "C2"
     
     transmitter.write(encoded, metadata, None, 0)
     transmitter.save("out.mid")

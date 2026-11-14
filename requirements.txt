@@ -1,2 +1,3 @@
 MIDIUtil
 numpy
+pygame
