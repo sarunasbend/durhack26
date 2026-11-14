@@ -1,3 +1,5 @@
+import Encoder as e
+
 class Tokenizer(object):
     def __init__(self, message):
         self.message = message
@@ -54,14 +56,22 @@ class Key(object):
     def __init__(self, key):
         self.key = key
 
+class Configuration(object):
+    def __init__(self):
+        self.cluster_size = 3
+
 class Composer(object):
     def __init__(self, key, scale_type):
         self.receiver = None
         self.transmitter = None
         self.scale = Scale(key=key, scale_type=scale_type)
+        self.configuration = Configuration()
     def encode_message(self, message):
         print(message)
         self.tokenizer = Tokenizer(message)
-        print(self.tokenizer.tokens)
+        encoder = e.Encoder(self.tokenizer)
+        encoded = encoder.encode()
+        print(encoded)
+        
     def decode_message(self, song):
         print(song)
