@@ -7,7 +7,7 @@ class Transmitter:
 
         # metadata
         self.time = 0
-        self.duration = 1
+        self.duration = 2
         self.tempo = 90
         self.volume = 100
         self.num_channel = 0

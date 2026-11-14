@@ -24,7 +24,7 @@ class Permuter(object):
         permutations = []
         for note in self.notes.notes:
             permutations.extend(
-                self.add_note_permutations(self.clusters, note)
+                reversed(self.add_note_permutations(self.clusters, note))
             )
 
         for c in range(len(self.characters.characters)):
