@@ -26,7 +26,7 @@ def create_gui(composer):
     root.mainloop()
 
 if __name__ == "__main__":
-    message = "Hello World. Welcome to Durhack, have fun!"
+    message = "We are Ad Libertum T-Shirt, thank you for watching our demo!"
 
     composer = a.Composer("c", "minor-pentatonic")
 
@@ -50,24 +50,24 @@ if __name__ == "__main__":
     front.createWindow()
     front.playMIDI("out.mid")
 
-    # decoded = composer.decode_message(encoded)
-    # decoded = ""
-    # decoder = composer.stream_decode()
-    # decoder.begin_decode()
-    # for i in encoded:
-    #     decoder.add_to_stream(i)
-    # decoded = decoder.stream_decoded
-    # print(decoded)
+    decoded = composer.decode_message(encoded)
+    decoded = ""
+    decoder = composer.stream_decode()
+    decoder.begin_decode()
+    for i in encoded:
+        decoder.add_to_stream(i)
+    decoded = decoder.stream_decoded
+    print(decoded)
 
-    # message = message.strip()
-    # decoded = decoded.strip()
+    message = message.strip()
+    decoded = decoded.strip()
 
-    # if message == decoded:
-    #     print("No Error")
-    # else:
-    #     print("Some Error")
-    #     for i, (expected, actual) in enumerate(zip(message, decoded)):
-    #         if expected != actual:
-    #             print(f"Discrepancy at {i}: {expected!r} != {actual!r}")
-    #     if len(message) != len(decoded):
-    #         print(f"Length mismatch: expected {len(message)}, got {len(decoded)}")
+    if message == decoded:
+        print("No Error")
+    else:
+        print("Some Error")
+        for i, (expected, actual) in enumerate(zip(message, decoded)):
+            if expected != actual:
+                print(f"Discrepancy at {i}: {expected!r} != {actual!r}")
+        if len(message) != len(decoded):
+            print(f"Length mismatch: expected {len(message)}, got {len(decoded)}")

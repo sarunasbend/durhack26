@@ -55,7 +55,7 @@ class Transmitter:
 
         # 81 IS GOATED
 
-        self.midi.addProgramChange(track_num, self.num_channel, self.time, 84)
+        self.midi.addProgramChange(track_num, self.num_channel, self.time, 4)
 
         # optional. But controls the tempo of midi file
         self.midi.addTempo(track=track_num, time=self.time, tempo=self.tempo)
