@@ -26,3 +26,11 @@ Matty: creating monsters
 Malachi: encoding messages as music
 Jack: creating receiver class
 
+## 15:38
+Encoding standard being developed
+
+Sarunas: translating notes into the correct midi pitches
+Matty: lulled by aliens
+Malachi: creating cluster based encoder
+Jack: reworking the receiver for new encoding system
+
