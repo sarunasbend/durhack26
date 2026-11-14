@@ -68,12 +68,12 @@ class Encoder(object):
     def convert_to_meta(self, pattern):
         if pattern == "quaver":
             return {
-                "duration": 2,
+                "duration": 0.5,
                 "time": 0.5
             }
         if pattern == "crotchet":
             return {
-                "duration": 8,
+                "duration": 2,
                 "time": 1
             }
 

@@ -19,7 +19,7 @@ class Front:
             pygame.mixer.music.play()
 
             while pygame.mixer.music.get_busy():
-                print("PLAYING MIDI")
-
+                continue
+            
         except Exception as e:
             print(f"MIDI ERROR: {e}")
