@@ -26,7 +26,7 @@ def create_gui(composer):
     root.mainloop()
 
 if __name__ == "__main__":
-    message = "We are Ad Libertum T-Shirt, thank you for watching our demo!"
+    message = ""
 
     composer = a.Composer("f#", "major-pentatonic")
 
