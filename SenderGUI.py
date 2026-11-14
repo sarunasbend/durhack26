@@ -120,6 +120,12 @@ class SenderGUI:
         self.is_hovered = False
         self.glow_alpha = 0.0
 
+        # Scene management: "planet", "transitioning", "green"
+        self.scene = "planet"
+        self.green_color = (34, 139, 34)
+        self.transition_start_time = 0
+        self.transition_duration = 750  # milliseconds for zoom & flash
+
         self._running = True
 
     def _ensure_planet_frames(self, current_dir):
@@ -202,6 +208,12 @@ class SenderGUI:
         pass
 
     def _update_hover(self):
+        # Disable hover outside the planet scene
+        if self.scene != "planet":
+            self.is_hovered = False
+            self.glow_alpha = 0.0
+            return
+
         mx, my = pygame.mouse.get_pos()
         dist = math.hypot(mx - self.planet_x, my - self.planet_y)
         self.is_hovered = (dist <= self.planet_radius)
@@ -210,6 +222,12 @@ class SenderGUI:
             self.glow_alpha = min(255.0, self.glow_alpha + 35.0)
         else:
             self.glow_alpha = max(0.0, self.glow_alpha - 25.0)
+
+    def _start_planet_transition(self):
+        self.scene = "transitioning"
+        self.transition_start_time = pygame.time.get_ticks()
+        self.is_hovered = False
+        self.glow_alpha = 0.0
 
     def _draw_planet_glow(self, center_pos):
         if self.glow_alpha <= 0:
@@ -235,7 +253,58 @@ class SenderGUI:
 
         self.screen.blit(glow_surf, glow_surf.get_rect(center=center_pos))
 
+    def _draw_transition(self):
+        elapsed = pygame.time.get_ticks() - self.transition_start_time
+        p = min(1.0, elapsed / self.transition_duration)
+
+        if self.bg_image:
+            self.screen.blit(self.bg_image, (0, 0))
+        else:
+            self.screen.fill((20, 20, 35))
+
+        if self.planet_frames:
+            current_frame = self.planet_frames[self.current_planet_frame]
+            scale = 1.0 + (p ** 2.2) * 8.0
+            orig_w = current_frame.get_width()
+            orig_h = current_frame.get_height()
+            zoomed_w = max(1, int(orig_w * scale))
+            zoomed_h = max(1, int(orig_h * scale))
+
+            zoomed_surf = pygame.transform.scale(current_frame, (zoomed_w, zoomed_h))
+            zoomed_rect = zoomed_surf.get_rect(center=(int(self.planet_x), int(self.planet_y)))
+            self.screen.blit(zoomed_surf, zoomed_rect)
+
+        flash_alpha = min(255, int(255 * (p ** 1.3)))
+        flash_surf = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        flash_surf.fill((255, 255, 255, flash_alpha))
+        self.screen.blit(flash_surf, (0, 0))
+
+        if p >= 1.0:
+            self.scene = "green"
+            self.green_fade_start = pygame.time.get_ticks()
+
     def _draw(self):
+        if self.scene == "green":
+            self.screen.fill(self.green_color)
+
+            if hasattr(self, "green_fade_start"):
+                fade_elapsed = pygame.time.get_ticks() - self.green_fade_start
+                if fade_elapsed < 220:
+                    fade_alpha = int(255 * (1.0 - fade_elapsed / 220.0))
+                    flash_surf = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+                    flash_surf.fill((255, 255, 255, fade_alpha))
+                    self.screen.blit(flash_surf, (0, 0))
+                else:
+                    del self.green_fade_start
+
+            pygame.display.flip()
+            return
+
+        if self.scene == "transitioning":
+            self._draw_transition()
+            pygame.display.flip()
+            return
+
         self._update_hover()
 
         if self.bg_image:
@@ -281,25 +350,12 @@ class SenderGUI:
 
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     if event.button == 1:
-                        mx, my = event.pos
-                        
-                        
+                        if self.scene == "planet":
+                            mx, my = event.pos
+                            if math.hypot(mx - self.planet_x, my - self.planet_y) <= self.planet_radius:
+                                self._start_planet_transition()
 
-                elif event.type == pygame.MOUSEBUTTONUP:
-                    if event.button == 1:
-                        self.is_dragging = False
-                
             self._draw()
             clock.tick(60)
 
         pygame.quit()
-
-
-if __name__ == "__main__":
-    import Avison as a
-    import Transmitter as t
-
-    composer = a.Composer("d", "major")
-    transmitter = t.Transmitter()
-    gui = SenderGUI(transmitter, composer)
-    gui.run()
