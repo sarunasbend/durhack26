@@ -2,7 +2,7 @@ import os
 import pygame
 
 # ignore this if not on linux cuz its 
-os.environ["SDL_SOUNDFONTS"] = "/usr/share/sounds/sf2/FluidR3_GM.sf2"
+# os.environ["SDL_SOUNDFONTS"] = "/usr/share/sounds/sf2/FluidR3_GM.sf2"
 
 class Front:
     def __init__(self):
