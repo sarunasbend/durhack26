@@ -17,3 +17,12 @@ Matty: eating a sandwich
 Idea firmed:
 - Planets sending out messages to each other
 - Using melodies sent out into space
+
+## 14:48
+Working on Avison.
+
+Sarunas: creating a class for transmitting a track as a midi file
+Matty: creating monsters
+Malachi: encoding messages as music
+Jack: creating receiver class
+
