@@ -13,4 +13,7 @@ Jack: music information retrieval
 Malachi: Setting up modules
 Matty: eating a sandwich
 
-## 
+## 13:51
+Idea firmed:
+- Planets sending out messages to each other
+- Using melodies sent out into space
