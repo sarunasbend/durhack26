@@ -7,4 +7,5 @@ To the red country and part of the gray country of Oklahoma, the last rains came
 
     composer = a.Composer("d", "major")
     encoded = composer.encode_message(message)
+    print(encoded)
     decoded = composer.decode_message(encoded)
