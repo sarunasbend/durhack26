@@ -28,7 +28,7 @@ def create_gui(composer):
 if __name__ == "__main__":
     message = "Hello World. Welcome to Durhack, have fun!"
 
-    composer = a.Composer("e", "major")
+    composer = a.Composer("c", "minor-pentatonic")
 
     # create_gui(composer)
 
@@ -41,6 +41,7 @@ if __name__ == "__main__":
     transmitter.config()
 
     transmitter.tempo = 200
+    transmitter.drone = "C3"
     
     transmitter.write(encoded, metadata, None, 0)
     transmitter.save("out.mid")

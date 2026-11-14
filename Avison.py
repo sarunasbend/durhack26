@@ -36,7 +36,9 @@ class Scale(object):
             "phrygian": [1, 2, 2, 2, 1, 2, 2],
             "lydian": [2, 2, 2, 1, 2, 2, 1],
             "mixolydian": [2, 2, 1, 2, 2, 1, 2],
-            "locrian": [1, 2, 2, 1, 2, 2, 2]
+            "locrian": [1, 2, 2, 1, 2, 2, 2],
+            "minor-pentatonic": [3, 2, 2, 3, 2],
+            "major-pentatonic": [2, 2, 3, 2, 3]
         }
         self.scale = self.generate_scale()
     def generate_scale(self):
@@ -61,7 +63,7 @@ class Key(object):
 
 class Configuration(object):
     def __init__(self):
-        self.cluster_size = 2
+        self.cluster_size = 3
         self.octaves = 2
         self.first_octave = 4
 

@@ -11,6 +11,7 @@ class Transmitter:
         self.tempo = 90
         self.volume = 100
         self.num_channel = 0
+        self.drone = False
 
         self.notes_mapping = {
             "C" : 0,
@@ -54,9 +55,13 @@ class Transmitter:
 
         # optional. But controls the tempo of midi file
         self.midi.addTempo(track=track_num, time=self.time, tempo=self.tempo)
+        song_end = 0
+        note_start_times = []
         for idx, note in enumerate(notes):
             meta = note_metadata[idx]
             note_start_time = self.time + meta.get("previous", 0)
+            note_start_times.append(note_start_time)
+            song_end = max(song_end, note_start_time + meta["duration"])
 
             if isinstance(note, list):
                 for chord_note in note:
@@ -71,6 +76,18 @@ class Transmitter:
                                 duration=meta["duration"], volume=meta["volume"])
 
             self.time = note_start_time + meta.get("time", 0)
+
+        if self.drone:
+            for idx in range(0, len(note_start_times), 8):
+                drone_start = note_start_times[idx]
+                next_drone_start = (note_start_times[idx + 8]
+                                    if idx + 8 < len(note_start_times)
+                                    else song_end)
+                self.midi.addNote(track=track_num, channel=self.num_channel,
+                                  pitch=self.calculatePitch(self.drone),
+                                  time=drone_start,
+                                  duration=max(0, next_drone_start - drone_start),
+                                  volume=self.volume)
 
                 
     # takes note and returns the pitch
