@@ -1,17 +1,14 @@
-from Transmitter import Transmitter
+import Avison as a
+import tkinter as tk
+import Transmitter as t
+from ReceiverGUI import *
 from Front import Front
+from SenderGUI import SenderGUI
 
 if __name__ == "__main__":
-    midi = Transmitter()
+    composer = a.Composer("d", "major")
+    transmitter = t.Transmitter()
 
-    notes = ["C4", "D4", "E4", "E3", "E6"]
+    senderGUI = SenderGUI(transmitter, composer)
+    senderGUI.run()
 
-    midi.config()
-    midi.write(notes, None, 0)
-    midi.save("out.mid")
-
-    front = Front()
-    front.createWindow()
-    front.playMIDI("out.mid")
-
-    
