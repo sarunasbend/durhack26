@@ -39,7 +39,9 @@ class Transmitter:
 
     # writes tracks to midi file
     # metadata to overwrite existing metadata ig, with metadata provided in dict format
-    def write(self, notes, metadata, track_num):
+    def write(self, notes, note_metadata, metadata, track_num):
+        self.time = 0
+
         if metadata != None:
             metadata["time"] = self.time
             metadata["duration"] = self.duration
@@ -52,20 +54,23 @@ class Transmitter:
 
         # optional. But controls the tempo of midi file
         self.midi.addTempo(track=track_num, time=self.time, tempo=self.tempo)
-
         for idx, note in enumerate(notes):
+            meta = note_metadata[idx]
+            note_start_time = self.time + meta.get("previous", 0)
 
             if isinstance(note, list):
                 for chord_note in note:
                     pitch = self.calculatePitch(chord_note)
-                    self.midi.addNote(track=track_num, channel=self.num_channel, 
-                        pitch=pitch, time=self.time + idx, 
-                        duration=self.duration, volume=self.volume)
+                    self.midi.addNote(track=track_num, channel=self.num_channel,
+                        pitch=pitch, time=note_start_time,
+                        duration=meta["duration"], volume=meta["volume"])
             else:
                 pitch = self.calculatePitch(note)
-                self.midi.addNote(track=track_num, channel=self.num_channel, 
-                                pitch=pitch, time=self.time + idx, 
-                                duration=self.duration, volume=self.volume)
+                self.midi.addNote(track=track_num, channel=self.num_channel,
+                                pitch=pitch, time=note_start_time,
+                                duration=meta["duration"], volume=meta["volume"])
+
+            self.time = note_start_time + meta.get("time", 0)
 
                 
     # takes note and returns the pitch

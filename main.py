@@ -26,13 +26,13 @@ def create_gui(composer):
     root.mainloop()
 
 if __name__ == "__main__":
-    message = "Hello World."
+    message = "Hello World. Welcome to Durhack, have fun!"
 
-    composer = a.Composer("d", "major")
+    composer = a.Composer("e", "major")
 
     # create_gui(composer)
 
-    encoded = composer.encode_message(message)
+    encoded, metadata = composer.encode_message(message)
     f = open("debug_encode.txt", "w")
     f.write(",".join(encoded))
     f.close()
@@ -40,9 +40,9 @@ if __name__ == "__main__":
     transmitter = t.Transmitter()
     transmitter.config()
 
-    transmitter.tempo = 150
+    transmitter.tempo = 200
     
-    transmitter.write(encoded, None, 0)
+    transmitter.write(encoded, metadata, None, 0)
     transmitter.save("out.mid")
 
     front = Front()
