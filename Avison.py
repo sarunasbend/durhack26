@@ -1,4 +1,7 @@
 import Encoder as e
+import Decoder as d
+import Transmitter as t
+# import Receiver as R
 
 class Tokenizer(object):
     def __init__(self, message):
@@ -76,4 +79,10 @@ class Composer(object):
         return encoded
         
     def decode_message(self, song):
-        pass
+        decoder = d.Decoder(self.configuration, self.scale)
+        decoded = decoder.decode(song)
+        return decoded
+
+    def stream_decode(self):
+        decoder = d.Decoder(self.configuration, self.scale)
+        return decoder
