@@ -1,179 +1,222 @@
-# Midi chord and note recognition and processing
-# assumptions:
-#  - single notes may also be played, by themselves.
-#  - chords are only major and minor triads
-#  - only one chord is played at a time
-#  - able to be done via microphone input and existing midi files
-#  - tempo is known in advance, and is constant throughout the song
-#  - commments should be used to explain the code, and the code should be well structured and organized
+# Receiver: works out the root note of whatever is being played.
 #
-# Approach: the tempo is known, so the input is cut into fixed time slots
-# (one symbol per slot) and each slot is classified on its own as a rest,
-# a single note, or a major/minor triad.
+# Two inputs:
+#   roots_from_midi('song.mid')   -> ['D4', 'G3', 'A3', ...]   one root per note/chord
+#   for root in listen(): ...      -> yields roots live from the microphone
+#
+# Roots come back as note names with an octave (e.g. 'F#4'), in the same
+# format as the notes table in Encoder.py.
+#
+# How the root is chosen (find_root):
+#   - a single note is its own root
+#   - for a chord, the root is the note that has a third (3 or 4 semitones)
+#     and a fifth (7 semitones) above it, so inversions still give the right root
+#   - failing that, a note with a fifth above it (e.g. a power chord)
+#   - failing that, the lowest note
+#
+# Command line:
+#   python Receiver.py song.mid
+#   python Receiver.py --mic
 
-from __future__ import annotations
-
-from dataclasses import dataclass
-from typing import Iterable, List, Optional, Union
+import sys
 
 import numpy as np
-import pretty_midi
 
-tempo = 120  # default tempo (beats per minute)
+NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
-# Pitch-class number <-> name. Uses sharps to match Scale.chromatic_scale in Avison.py.
-NUM_TO_ABS_SCALE = {0: 'C', 1: 'C#', 2: 'D', 3: 'D#', 4: 'E', 5: 'F', 6: 'F#', 7: 'G', 8: 'G#', 9: 'A', 10: 'A#', 11: 'B'}
-ABS_SCALE_TO_NUM = {name: num for num, name in NUM_TO_ABS_SCALE.items()}
+# MIDI: notes starting within this many seconds of each other count as one chord.
+CHORD_WINDOW = 0.1
 
-# Chord qualities as intervals (in semitones) above the root.
-QUALITIES = {'maj': (0, 4, 7), 'min': (0, 3, 7)}
+# Live audio settings.
+SAMPLE_RATE = 44100
+WINDOW = 4096          # samples analysed at once (~93 ms)
+HOP = 1024             # new samples read each step (~23 ms)
+SILENCE = 0.01         # RMS below this counts as silence
+ONSET_RATIO = 1.5      # a jump in loudness this big means a new note was played
+SETTLE_HOPS = 3        # wait this many hops after an onset before reading the note
+MIN_FREQ = 50.0        # ignore spectrum peaks outside this range (Hz)
+MAX_FREQ = 2000.0
+PEAK_THRESHOLD = 0.1   # peaks quieter than this fraction of the loudest are ignored
 
-
-@dataclass
-class Symbol:
-    """One recognised symbol occupying one time slot."""
-    slot: int                      # index on the beat grid
-    kind: str                      # 'rest', 'note' or 'chord'
-    root: Optional[int] = None     # pitch class 0-11
-    quality: Optional[str] = None  # 'maj' or 'min' for chords
-    pitch: Optional[int] = None    # exact MIDI number for single notes, when known
-    confidence: float = 1.0        # best match score minus the runner-up
-
-    @property
-    def name(self) -> str:
-        """Label without octave: 'N' (rest), 'C' (note) or 'A:min' (chord)."""
-        if self.kind == 'rest':
-            return 'N'
-        if self.kind == 'note':
-            return NUM_TO_ABS_SCALE[self.root]
-        return '%s:%s' % (NUM_TO_ABS_SCALE[self.root], self.quality)
+# Noise filtering.
+MAX_CENTS = 30           # a peak must be within this many cents (1/100 semitone) of a real note
+NOISE_FLOOR_RATIO = 10   # a peak must be this many times louder than the median of the spectrum
+MIN_TONAL = 0.6          # at least this fraction of the sound must be in in-tune peaks to be a note
+PEAK_WIDTH = 8           # spectrum bins either side of a peak that belong to it
+CALIBRATE_SECONDS = 1.0  # listen() measures the background noise for this long first
+NOISE_MARGIN = 2.0       # sound must be this many times louder than the background
 
 
-def build_templates(allowed_symbols: Optional[Iterable[str]] = None):
-    """Return (labels, templates): one unit-length 12-bin template per note/chord.
+def note_name(midi_pitch):
+    """60 -> 'C4'."""
+    return NOTE_NAMES[midi_pitch % 12] + str(midi_pitch // 12 - 1)
 
-    labels[i] is (kind, root, quality). allowed_symbols (names like 'C' or
-    'A:min') optionally restricts recognition to a smaller set.
+
+def find_root(pitches):
+    """Return the MIDI pitch of the root of a note or chord, or None if empty."""
+    pitches = sorted(set(pitches))
+    if not pitches:
+        return None
+    pitch_classes = {p % 12 for p in pitches}
+
+    # Lowest first, so the root comes back in the octave it is lowest in.
+    for p in pitches:
+        has_third = (p + 3) % 12 in pitch_classes or (p + 4) % 12 in pitch_classes
+        has_fifth = (p + 7) % 12 in pitch_classes
+        if has_third and has_fifth:
+            return p
+
+    for p in pitches:
+        if (p + 7) % 12 in pitch_classes:
+            return p
+
+    return pitches[0]
+
+
+# ----- MIDI ------------------------------------------------------------------
+
+def roots_from_midi(midi):
+    """Root note name of every note/chord in a MIDI file, in order.
+
+    midi can be a file path or a pretty_midi.PrettyMIDI object.
     """
-    labels = [('note', root, None) for root in range(12)]
-    labels += [('chord', root, q) for root in range(12) for q in QUALITIES]
+    import pretty_midi
 
-    if allowed_symbols is not None:
-        allowed = set(allowed_symbols)
-        labels = [l for l in labels
-                  if (NUM_TO_ABS_SCALE[l[1]] if l[0] == 'note' else '%s:%s' % (NUM_TO_ABS_SCALE[l[1]], l[2])) in allowed]
-        if not labels:
-            raise ValueError('allowed_symbols contains no notes or chords')
+    if isinstance(midi, str):
+        midi = pretty_midi.PrettyMIDI(midi)
 
-    templates = np.zeros((len(labels), 12))
-    for i, (kind, root, quality) in enumerate(labels):
-        for interval in ((0,) if kind == 'note' else QUALITIES[quality]):
-            templates[i, (root + interval) % 12] = 1.0
-    templates /= np.linalg.norm(templates, axis=1, keepdims=True)
-    return labels, templates
+    notes = [n for inst in midi.instruments if not inst.is_drum for n in inst.notes]
+    notes.sort(key=lambda n: n.start)
+
+    # Group notes that start together into chords.
+    groups = []
+    for note in notes:
+        if groups and note.start - groups[-1][0].start <= CHORD_WINDOW:
+            groups[-1].append(note)
+        else:
+            groups.append([note])
+
+    return [note_name(find_root([n.pitch for n in group])) for group in groups]
 
 
-class Receiver(object):
-    """Turns a performance (MIDI file, later audio) into a list of Symbols."""
+# ----- Live audio ------------------------------------------------------------
 
-    def __init__(self, tempo: float = tempo, beats_per_symbol: float = 1,
-                 allowed_symbols: Optional[Iterable[str]] = None):
-        self.tempo = tempo
-        self.beats_per_symbol = beats_per_symbol
-        self.labels, self.templates = build_templates(allowed_symbols)
+def spectrum_of(samples, sample_rate=SAMPLE_RATE):
+    """Return (frequency of each bin, magnitude spectrum) of a block of audio."""
+    n = 4 * len(samples)  # zero-padded for finer bins
+    spectrum = np.abs(np.fft.rfft(samples * np.hanning(len(samples)), n=n))
+    freqs = np.fft.rfftfreq(n, 1.0 / sample_rate)
+    return freqs, spectrum
 
-    @property
-    def slot_seconds(self) -> float:
-        """Length of one symbol slot in seconds."""
-        return 60.0 / self.tempo * self.beats_per_symbol
 
-    # ----- Inputs -------------------------------------------------------------
+def pitches_in_audio(samples, sample_rate=SAMPLE_RATE, background=None):
+    """MIDI pitches of the in-tune peaks in a block of audio.
 
-    def from_midi(self, midi: Union[str, pretty_midi.PrettyMIDI]) -> List[Symbol]:
-        """Recognise symbols from a MIDI file path or a loaded PrettyMIDI object."""
-        if isinstance(midi, str):
-            midi = pretty_midi.PrettyMIDI(midi)
-        return [self._classify_pitches(pitches, slot)
-                for slot, pitches in enumerate(self._midi_to_slots(midi))]
+    Returns [] if the block doesn't sound like a note. Noise is filtered by:
+      - subtracting the background spectrum (measured by listen()), if given
+      - ignoring peaks that barely rise above the rest of the spectrum
+      - ignoring peaks more than MAX_CENTS away from a real note
+      - rejecting the whole block if most of its energy isn't in those in-tune
+        peaks (noise, claps and speech spread their energy everywhere)
 
-    def from_audio_file(self, path: str) -> List[Symbol]:
-        """Recognise symbols from a recording (to do: chroma per slot -> _classify_chroma)."""
-        raise NotImplementedError
+    The pitches include each note's overtones as well as the notes themselves,
+    which suits find_root: a single C gives C, G and E overtones, which read
+    as a C major chord, so the root is still C.
+    """
+    freqs, spectrum = spectrum_of(samples, sample_rate)
+    if background is not None:
+        spectrum = np.maximum(spectrum - NOISE_MARGIN * background, 0)
 
-    def from_microphone(self, seconds: float) -> List[Symbol]:
-        """Record from the microphone, then recognise as for an audio file (to do)."""
-        raise NotImplementedError
+    in_range = np.nonzero((freqs >= MIN_FREQ) & (freqs <= MAX_FREQ))[0]
+    loudest = spectrum[in_range].max()
+    if loudest == 0:
+        return []
+    noise_floor = np.median(spectrum[in_range])
+    threshold = max(PEAK_THRESHOLD * loudest, NOISE_FLOOR_RATIO * noise_floor)
 
-    # ----- MIDI path ----------------------------------------------------------
+    pitches = set()
+    in_tune = np.zeros(len(spectrum), dtype=bool)  # bins belonging to in-tune peaks
+    for i in in_range:
+        is_peak = spectrum[i] > spectrum[i - 1] and spectrum[i] >= spectrum[i + 1]
+        if not is_peak or spectrum[i] < threshold:
+            continue
 
-    def _midi_to_slots(self, midi: pretty_midi.PrettyMIDI) -> List[List[int]]:
-        """Return the MIDI pitches sounding at the middle of each slot.
+        # Find the exact peak frequency between bins: fit a parabola through
+        # the peak bin and its two neighbours (on a log scale).
+        a, b, c = np.log(spectrum[i - 1:i + 2] + 1e-12)
+        offset = 0.5 * (a - c) / (a - 2 * b + c)
+        freq = (i + offset) * freqs[1]
 
-        The grid starts at the first note, so leading silence is ignored, and
-        sampling the middle of each slot tolerates slightly early/late notes.
-        """
-        notes = [n for inst in midi.instruments if not inst.is_drum for n in inst.notes]
-        if not notes:
-            return []
+        exact = 69 + 12 * np.log2(freq / 440.0)  # fractional MIDI pitch
+        pitch = int(round(exact))
+        if abs(exact - pitch) * 100 > MAX_CENTS:
+            continue  # between two notes, so not a real note
 
-        start = min(n.start for n in notes)
-        last_start = max(n.start for n in notes)
-        n_slots = int(np.floor((last_start - start) / self.slot_seconds + 0.5)) + 1
+        pitches.add(pitch)
+        in_tune[i - PEAK_WIDTH:i + PEAK_WIDTH + 1] = True
 
-        slots = []
-        for slot in range(n_slots):
-            middle = start + (slot + 0.5) * self.slot_seconds
-            slots.append(sorted(n.pitch for n in notes if n.start <= middle < n.end))
-        return slots
+    power = spectrum[in_range] ** 2
+    if power[in_tune[in_range]].sum() < MIN_TONAL * power.sum():
+        return []  # too much of the sound is noise
+    return sorted(pitches)
 
-    def _classify_pitches(self, pitches: List[int], slot: int) -> Symbol:
-        """Classify one MIDI slot from its exact pitches.
 
-        Silence, one pitch class, or an exact triad are decided directly;
-        anything else (e.g. a stray extra note) uses the template matcher.
-        """
-        pitch_classes = {p % 12 for p in pitches}
+def root_from_audio(samples, sample_rate=SAMPLE_RATE, background=None, silence=SILENCE):
+    """Root note name of a block of audio, or None if it is silent or not a note."""
+    if np.sqrt(np.mean(samples ** 2)) < silence:
+        return None
+    root = find_root(pitches_in_audio(samples, sample_rate, background))
+    return None if root is None else note_name(root)
 
-        if not pitch_classes:
-            return Symbol(slot, 'rest')
 
-        if len(pitch_classes) == 1 and ('note', pitches[0] % 12, None) in self.labels:
-            # Lowest pitch played, in case of octave doubling.
-            return Symbol(slot, 'note', root=pitches[0] % 12, pitch=pitches[0])
+def listen(device=None):
+    """Listen to the microphone and yield the root of each note/chord as it is played.
 
-        if len(pitch_classes) == 3:
-            for root in pitch_classes:
-                intervals = {(pc - root) % 12 for pc in pitch_classes}
-                for quality, quality_intervals in QUALITIES.items():
-                    if intervals == set(quality_intervals) and ('chord', root, quality) in self.labels:
-                        return Symbol(slot, 'chord', root=root, quality=quality)
+    It first spends CALIBRATE_SECONDS measuring the background noise (keep quiet),
+    which is then subtracted from everything it hears.
 
-        chroma = np.zeros(12)
-        chroma[list(pitch_classes)] = 1.0
-        symbol = self._classify_chroma(chroma, slot)
-        if symbol.kind == 'note':
-            symbol.pitch = next((p for p in pitches if p % 12 == symbol.root), None)
-        return symbol
+    A note is reported a few hops after its onset (a jump in loudness), so the
+    analysis window is mostly the new note rather than the tail of the last one.
+    """
+    import sounddevice as sd
 
-    # ----- Shared classifier (MIDI fallback now, audio later) ---------------
+    with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, blocksize=HOP, device=device) as stream:
+        # Measure the background: its average spectrum, and a loudness threshold above it.
+        print('Measuring background noise, stay quiet...', flush=True)
+        quiet = [stream.read(WINDOW)[0][:, 0] for _ in range(int(CALIBRATE_SECONDS * SAMPLE_RATE / WINDOW))]
+        background = np.mean([spectrum_of(block)[1] for block in quiet], axis=0)
+        silence = max(SILENCE, NOISE_MARGIN * np.sqrt(np.mean(np.concatenate(quiet) ** 2)))
+        print('Listening... (Ctrl+C to stop)', flush=True)
 
-    def _classify_chroma(self, chroma: np.ndarray, slot: int) -> Symbol:
-        """Pick the template closest (by cosine similarity) to a 12-bin chroma vector."""
-        norm = np.linalg.norm(chroma)
-        if norm == 0:
-            return Symbol(slot, 'rest')
+        window = np.zeros(WINDOW)
+        previous_rms = 0.0
+        countdown = None  # hops left before reading a note that has just started
 
-        scores = self.templates @ (chroma / norm)
-        order = np.argsort(scores)[::-1]
-        confidence = float(scores[order[0]] - scores[order[1]]) if len(order) > 1 else 1.0
-        kind, root, quality = self.labels[order[0]]
-        return Symbol(slot, kind, root=root, quality=quality, confidence=confidence)
+        while True:
+            hop, _ = stream.read(HOP)
+            hop = hop[:, 0]
+            window = np.concatenate([window[HOP:], hop])
+
+            rms = np.sqrt(np.mean(hop ** 2))
+            if rms > silence and rms > ONSET_RATIO * previous_rms:
+                countdown = SETTLE_HOPS
+            previous_rms = rms
+
+            if countdown is not None:
+                countdown -= 1
+                if countdown <= 0:
+                    countdown = None
+                    root = root_from_audio(window, background=background, silence=silence)
+                    if root is not None:
+                        yield root
 
 
 if __name__ == '__main__':
-    # Usage: python Receiver.py path/to/song.mid [tempo]
-    import sys
-
-    receiver = Receiver(tempo=float(sys.argv[2]) if len(sys.argv) > 2 else tempo)
-    for symbol in receiver.from_midi(sys.argv[1]):
-        print(symbol.slot, symbol.name, symbol.pitch or '', '%.2f' % symbol.confidence)
+    if len(sys.argv) > 1 and sys.argv[1] != '--mic':
+        print(' '.join(roots_from_midi(sys.argv[1])))
+    else:
+        try:
+            for root in listen():
+                print(root, flush=True)
+        except KeyboardInterrupt:
+            pass
