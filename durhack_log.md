@@ -50,3 +50,10 @@ Matty: made a monster sender and monster receiver
 Malachi: as snug as a bug in a rug
 Jack: trained the neural network receiver
 
+## 9:56
+Working on the final devpost submission
+
+Sarunas: writing this log
+Matty: writing the devpost
+Malachi: adding start and end tokens to encoder
+Jack: adding sheet music creation after transmission

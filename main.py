@@ -4,7 +4,6 @@ import Transmitter as t
 import Settings
 from ReceiverGUI import *
 from SenderGUI import *
-from Front import Front
 import tkinter.font as tkFont
 
 def transmit(composer):
@@ -85,39 +84,3 @@ if __name__ == "__main__":
     composer = a.Composer(Settings.KEY, Settings.SCALE_TYPE)
 
     create_gui(composer)
-
-    # encoded, metadata = composer.encode_message(message)
-    # transmitter = t.Transmitter()
-    # transmitter.config()
-
-    # transmitter.tempo = Settings.TEMPO
-    # transmitter.drone = Settings.DRONE
-    
-    # transmitter.write(encoded, metadata, None, 0)
-    # transmitter.save("out.mid")
-
-    # front = Front()
-    # front.createWindow()
-    # front.playMIDI("out.mid")
-
-    # decoded = composer.decode_message(encoded)
-    # decoded = ""
-    # decoder = composer.stream_decode()
-    # decoder.begin_decode()
-    # for i in encoded:
-    #     decoder.add_to_stream(i)
-    # decoded = decoder.stream_decoded
-    # print(decoded)
-
-    # message = message.strip()
-    # decoded = decoded.strip()
-
-    # if message == decoded:
-    #     print("No Error")
-    # else:
-    #     print("Some Error")
-    #     for i, (expected, actual) in enumerate(zip(message, decoded)):
-    #         if expected != actual:
-    #             print(f"Discrepancy at {i}: {expected!r} != {actual!r}")
-    #     if len(message) != len(decoded):
-    #         print(f"Length mismatch: expected {len(message)}, got {len(decoded)}")
