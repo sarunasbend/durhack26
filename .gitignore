@@ -29,3 +29,4 @@ training/archive_*/
 *.mid
 planet_frames/
 star_frames/
+receiver_planet_frames/

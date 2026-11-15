@@ -42,3 +42,11 @@ Matty: off on a mission
 Malachi: connecting transmitter to encoder
 Jack: off on a mission
 
+## 2:03
+Successful encoding and decoding of messages in song
+
+Sarunas: made the home screen for sender/receiver
+Matty: made a monster sender and monster receiver
+Malachi: as snug as a bug in a rug
+Jack: trained the neural network receiver
+
