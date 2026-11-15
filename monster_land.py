@@ -188,7 +188,7 @@ class MonsterLand:
         max_h = max(self.tiles.values()) if self.tiles else 0
         self.origin_x = self.win_w // 2
         self.origin_y = (top_margin + (self.win_h - top_margin) // 2
-                         - (n * STEP_Y * self.scale) // 2
+                         - ((2 * n - 1) * STEP_Y * self.scale) // 2
                          + max_h * TILE_DEPTH * self.scale // 2 + 20)
 
     # ------------------------------------------------------------------ api
@@ -219,7 +219,9 @@ class MonsterLand:
 
     def draw(self):
         self.screen.blit(self.background, (0, 0))
-        by_pos = {(m.gx, m.gy): m for m in self.monsters}
+        by_pos = {}                      # tile -> monsters standing on (or walking over) it
+        for m in self.monsters:
+            by_pos.setdefault((round(m.gx), round(m.gy)), []).append(m)
 
         # painter order: back to front by gx+gy
         for (gx, gy) in sorted(self.tiles, key=lambda p: (p[0] + p[1], p[0])):
@@ -230,8 +232,7 @@ class MonsterLand:
                 tx = sx - TILE_W * self.scale // 2
                 ty = sy - l * TILE_DEPTH * self.scale
                 self.screen.blit(self.tile, (tx, ty))
-            m = by_pos.get((gx, gy))
-            if m:
+            for m in sorted(by_pos.get((gx, gy), ()), key=lambda m: m.gx + m.gy):
                 self._draw_monster(m)
 
         self.draw_overlay()

@@ -49,10 +49,20 @@ JOE_W, JOE_H, JOE_FEET = 32, 80, 64        # sprite metrics
 JOE_ANTENNA = (16, 4)                       # antenna tip inside the sprite
 
 VIEW_SCALE = 2
-WINDOW = (1024, 800)
-TOP_MARGIN = 150
-GRID = 12
-CROWD = 11
+WINDOW = (1280, 900)
+TOP_MARGIN = 96                              # status panel height
+TEXT_TOP = TOP_MARGIN + 80                   # first line of floating letters
+TEXT_LINE_H = 36
+TEXT_MARGIN = 60
+ISLAND_TOP = TOP_MARGIN + 110                # island is centred below the floating text
+LETTER_FLIGHT = 0.7                          # seconds a letter takes to reach its slot
+LETTER_FADE = 1.2                            # seconds an old message takes to fade out
+GRID = 15
+BASE_CROWD = 3                               # aliens already there before a message
+MAX_CROWD = 18
+JOIN_EVERY = 6                               # a new alien wanders in every N notes heard
+WALK_SPEED = 1.6                             # tiles per second
+LEAVE_AFTER = 6.0                            # seconds after a message ends before the party thins out
 JOE_KIND = -1
 
 MIC_SR = 22050                               # what the model was trained on (common.SR)
@@ -235,12 +245,18 @@ class ReceiverPlanet(MonsterLand):
         self.waves = []
         self.particles = []
         self.wave_budget = 0.0
+        self.letters = []            # letters of the current message, flying or settled
+        self.old_letters = []        # letters of the previous message, fading out
+        self.seen_text = ""
+        self.party_over_at = None
         self.beat = 60.0 / Settings.TEMPO
         self.latency = self._load_latency()
 
         super().__init__(seed=1, scale=VIEW_SCALE, window=WINDOW)
         pygame.display.set_caption("Receiver Planet")
         self.big_font = pygame.font.SysFont("consolas", 26)
+        self.letter_font = pygame.font.SysFont("consolas", 30, bold=True)
+        self.char_w = self.letter_font.size("M")[0]
         self.small_font = pygame.font.SysFont("consolas", 15)
         try:
             if not pygame.mixer.get_init():
@@ -295,27 +311,92 @@ class ReceiverPlanet(MonsterLand):
         self.joe.pitch = None
         self.monsters.append(self.joe)
         self.shuffle_crowd()
-        self.center_island(top_margin=TOP_MARGIN)
+        self.center_island(top_margin=ISLAND_TOP)
 
     def shuffle_crowd(self):
-        """Aliens around Joe, each wearing the colour of one pitch of the scale."""
-        rng = random.Random()
+        """Reset to the small base crowd standing around Joe."""
         self.monsters = [self.joe]
         c = (GRID - 1) / 2
-        ring = [t for t in self.tiles
-                if 2.0 <= math.hypot(t[0] - c, t[1] - c) <= 0.9 * c]
-        rng.shuffle(ring)
-        kinds = [k for k in range(NUM_TYPES)]
-        rng.shuffle(kinds)
-        pitches = list(self.note_table)
-        for i, tile in enumerate(ring[:CROWD]):
-            m = Monster(kinds[i % len(kinds)], tile[0], tile[1], self.tiles[tile])
-            m.auto = False
-            m.pitch = pitches[i % len(pitches)]
-            m.style = rng.randrange(3)
-            m.offset = rng.uniform(0, math.tau)
-            m.kick = 0.0
-            self.monsters.append(m)
+        self.spots = [t for t in self.tiles
+                      if 2.0 <= math.hypot(t[0] - c, t[1] - c) <= 0.85 * c]
+        self.shore = [t for t in self.tiles
+                      if any((t[0] + dx, t[1] + dy) not in self.tiles
+                             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))]
+        self.kinds = list(range(NUM_TYPES))
+        random.shuffle(self.kinds)
+        self.next_kind = 0
+        for _ in range(BASE_CROWD):
+            spot = self._free_spot()
+            if spot:
+                self._new_alien(spot, spot)
+
+    def aliens(self):
+        return [m for m in self.monsters if m is not self.joe]
+
+    def _free_spot(self):
+        taken = {(round(m.gx), round(m.gy)) for m in self.monsters}
+        taken |= {m.walk["to"] for m in self.aliens() if m.walk}
+        free = [t for t in self.spots if t not in taken]
+        return random.choice(free) if free else None
+
+    def _shore_near(self, spot):
+        """A shore tile on the same side of the island as spot, so walks are short."""
+        c = (GRID - 1) / 2
+        ang = math.atan2(spot[1] - c, spot[0] - c)
+        def diff(t):
+            a = math.atan2(t[1] - c, t[0] - c)
+            return abs((a - ang + math.pi) % math.tau - math.pi)
+        near = sorted(self.shore, key=diff)[:6]
+        return random.choice(near)
+
+    def _new_alien(self, start, target):
+        kind = self.kinds[self.next_kind % len(self.kinds)]
+        self.next_kind += 1
+        m = Monster(kind, start[0], start[1], self.tiles[start])
+        m.auto = False
+        m.pitch = self.note_table[(self.next_kind * 3) % len(self.note_table)]
+        m.style = random.randrange(3)
+        m.offset = random.uniform(0, math.tau)
+        m.kick = 0.0
+        m.leaving = False
+        m.walk = None
+        if start != target:
+            self._send(m, target)
+        self.monsters.append(m)
+        return m
+
+    def _send(self, m, target):
+        dist = math.hypot(target[0] - m.gx, target[1] - m.gy)
+        m.walk = {"from": (m.gx, m.gy), "to": target, "t": 0.0, "dur": max(0.3, dist / WALK_SPEED)}
+
+    def _alien_arrives(self):
+        spot = self._free_spot()
+        if spot is None or len(self.aliens()) >= MAX_CROWD:
+            return
+        self._new_alien(self._shore_near(spot), spot)
+
+    def _party_thins(self):
+        """Everyone beyond the base crowd wanders back to the shore."""
+        settled = [m for m in self.aliens() if not m.leaving]
+        for m in settled[BASE_CROWD:]:
+            m.leaving = True
+            self._send(m, self._shore_near((round(m.gx), round(m.gy))))
+
+    def _update_walkers(self, dt):
+        for m in self.aliens():
+            if not m.walk:
+                continue
+            w = m.walk
+            w["t"] = min(1.0, w["t"] + dt / w["dur"])
+            p = w["t"]
+            m.gx = w["from"][0] + (w["to"][0] - w["from"][0]) * p
+            m.gy = w["from"][1] + (w["to"][1] - w["from"][1]) * p
+            m.height = self.tiles.get((round(m.gx), round(m.gy)), m.height)
+            if p >= 1.0:
+                m.gx, m.gy = w["to"]
+                m.walk = None
+                if m.leaving:
+                    self.monsters.remove(m)
 
     # ------------------------------------------------------------------ update
     def handle_event(self, ev):
@@ -328,6 +409,7 @@ class ReceiverPlanet(MonsterLand):
                 self.shuffle_crowd()
             if ev.key == pygame.K_SPACE and isinstance(self.source, DemoSource):
                 self.seen_notes = 0
+                self._retire_letters()
                 self.source.start()
             if ev.key in (pygame.K_LEFTBRACKET, pygame.K_RIGHTBRACKET) and isinstance(self.source, DemoSource):
                 step = -0.02 if ev.key == pygame.K_LEFTBRACKET else 0.02
@@ -353,6 +435,19 @@ class ReceiverPlanet(MonsterLand):
             self._play_note(notes[self.seen_notes])
             self.seen_notes += 1
 
+        # new characters -> Joe emits them as floating letters
+        text = src.text
+        if not text.startswith(self.seen_text):          # a new message began
+            self._retire_letters()
+        for i in range(len(self.seen_text), len(text)):
+            self._emit_letter(i, text[i])
+        self.seen_text = text
+        for L in self.letters:
+            L["t"] = min(1.0, L["t"] + dt / LETTER_FLIGHT)
+        for L in self.old_letters:
+            L["fade"] += dt / LETTER_FADE
+        self.old_letters = [L for L in self.old_letters if L["fade"] < 1.0]
+
         # sound waves pour in while there is sound
         level = src.level
         self.wave_budget += dt * (2 + 18 * level) * (1.0 if level > 0.05 or src.active else 0.0)
@@ -371,10 +466,21 @@ class ReceiverPlanet(MonsterLand):
                 w["y"] += dy / d * step
         self.waves = [w for w in self.waves if not w.get("dead")]
 
+        # the party grows as the transmission goes on, and thins out after it
+        if src.active:
+            self.party_over_at = None
+            wanted = min(MAX_CROWD, BASE_CROWD + self.seen_notes // JOIN_EVERY)
+            if len([m for m in self.aliens() if not m.leaving]) < wanted:
+                self._alien_arrives()
+        elif self.party_over_at is None and len(self.aliens()) > BASE_CROWD:
+            self.party_over_at = now
+        elif self.party_over_at is not None and now - self.party_over_at > LEAVE_AFTER:
+            self._party_thins()
+            self.party_over_at = None
+        self._update_walkers(dt)
+
         # dancers
-        for m in self.monsters:
-            if m is self.joe:
-                continue
+        for m in self.aliens():
             m.kick = max(0.0, m.kick - dt * 3)
             m.phase += dt * 2
         self.joe.singing = now < self.flash_until
@@ -404,6 +510,62 @@ class ReceiverPlanet(MonsterLand):
                     "age": 0.0,
                 })
 
+    def _slot(self, index, total=None):
+        """Screen position of the index-th character of the floating message.
+
+        Each line is centred over the island, so slots shift a little as the
+        last line grows; settled letters glide to follow.
+        """
+        total = len(self.seen_text) if total is None else total
+        per_line = max(1, (self.win_w - 2 * TEXT_MARGIN) // self.char_w)
+        line, col = divmod(index, per_line)
+        on_line = per_line if (line + 1) * per_line <= total else total - line * per_line
+        x0 = self.origin_x - on_line * self.char_w / 2
+        return x0 + col * self.char_w, TEXT_TOP + line * TEXT_LINE_H
+
+    def _emit_letter(self, index, ch):
+        colour = self.pitch_colour.get(self.flash_pitch) if self.flash_pitch else None
+        col = pygame.Color(240, 240, 250)
+        if colour is not None:                      # tint towards the note that finished it
+            col = pygame.Color((col.r + colour.r) // 2, (col.g + colour.g) // 2, (col.b + colour.b) // 2)
+        surf = self.letter_font.render(ch, True, col) if ch.strip() else None
+        sx, sy = self._antenna_pos()
+        tx, ty = self._slot(index)
+        self.letters.append({"ch": ch, "surf": surf, "sx": sx, "sy": sy, "tx": tx, "ty": ty,
+                             "t": 0.0, "index": index, "fade": 0.0})
+
+    def _retire_letters(self):
+        for L in self.letters:
+            L["t"] = 1.0
+        self.old_letters = self.letters
+        self.letters = []
+        self.seen_text = ""
+
+    def _draw_letters(self):
+        now = time.perf_counter()
+        for L in self.old_letters + self.letters:
+            if L["surf"] is None:
+                continue
+            p = L["t"]
+            if L["fade"] == 0:                      # follow the centred slot as the line grows
+                tx, ty = self._slot(L["index"])
+                L["tx"] += (tx - L["tx"]) * 0.2
+                L["ty"] = ty
+            ease = 1 - (1 - p) ** 3
+            x = L["sx"] + (L["tx"] - L["sx"]) * ease
+            y = L["sy"] + (L["ty"] - L["sy"]) * ease - math.sin(math.pi * p) * 35
+            if p >= 1.0:                            # settled: gentle wave along the line
+                y += math.sin(now * 2.2 + L["index"] * 0.45) * 3
+            y += L["fade"] * 30                     # old message sinks as it fades
+            if L["fade"] > 0:
+                L["surf"].set_alpha(int(255 * (1.0 - L["fade"])))
+            self.screen.blit(L["surf"], (int(x), int(y)))
+        # caret after the last letter while receiving
+        src = self.source
+        if src and src.active and (pygame.time.get_ticks() // 400) % 2 == 0:
+            cx, cy = self._slot(len(self.seen_text))
+            pygame.draw.rect(self.screen, (200, 200, 230), (cx, cy + 4, 3, TEXT_LINE_H - 10))
+
     def _antenna_pos(self):
         if not self.joe.rect.width:
             return (self.win_w // 2, self.win_h // 2)
@@ -428,7 +590,7 @@ class ReceiverPlanet(MonsterLand):
         key = (m.pitch, m.kind)
         if key not in self.tinted:
             self.tinted[key] = tuple(recolour(f, self.pitch_colour[m.pitch]) for f in self.frames[m.kind])
-        dancing = self._dance_phase() is not None
+        dancing = self._dance_phase() is not None and not m.walk
         mouth = 0
         if dancing:
             phase = self._dance_phase() + m.offset
@@ -451,6 +613,8 @@ class ReceiverPlanet(MonsterLand):
             return 0, 0
         phase = self._dance_phase()
         s = self.scale
+        if m.walk:                                                             # walking: little hops
+            return 0, int(abs(math.sin(m.walk["t"] * m.walk["dur"] * 9)) * 2 * s)
         if phase is None:
             return int(math.sin(m.phase * 0.7 + m.offset) * 1.5 * s), 0           # idle sway
         p = phase + m.offset / math.tau
@@ -493,6 +657,7 @@ class ReceiverPlanet(MonsterLand):
         pass
 
     def draw_overlay(self):
+        self._draw_letters()
         target = self._antenna_pos()
         for w in self.waves:
             ang = math.degrees(math.atan2(-(target[1] - w["y"]), target[0] - w["x"]))
@@ -512,24 +677,10 @@ class ReceiverPlanet(MonsterLand):
 
         label = self.small_font.render("Incoming transmission:", True, (170, 170, 200))
         self.screen.blit(label, (20, 12))
-
-        # previous message, dim
         history = src.history if src else []
         if history:
-            prev = self.small_font.render(history[-1][-100:], True, (120, 120, 150))
+            prev = self.small_font.render("previous: " + history[-1][-90:], True, (120, 120, 150))
             self.screen.blit(prev, (20, 32))
-
-        box = pygame.Rect(20, 52, self.win_w - 40, 44)
-        pygame.draw.rect(self.screen, (24, 24, 40), box, border_radius=6)
-        pygame.draw.rect(self.screen, (120, 110, 170), box, 2, border_radius=6)
-        text = src.text if src else ""
-        caret = "|" if (src and src.active and (pygame.time.get_ticks() // 400) % 2 == 0) else ""
-        surf = self.big_font.render(text + caret, True, (240, 240, 250))
-        inner = box.inflate(-20, -12)
-        x = inner.x if surf.get_width() <= inner.width else inner.right - surf.get_width()
-        self.screen.set_clip(inner)
-        self.screen.blit(surf, (x, inner.y + (inner.height - surf.get_height()) // 2))
-        self.screen.set_clip(None)
 
         # status + level meter
         status = src.status if src else "starting"
@@ -540,18 +691,19 @@ class ReceiverPlanet(MonsterLand):
                   "demo": "demo"}.get(status, status)
         notes = len(src.notes) if src else 0
         scale = self.composer.scale
-        info = f"{scale.key} {scale.scale_type}  |  {pretty}  |  {notes} notes heard  |  mic: {src.device_name if src else '?'}"
+        info = (f"{scale.key} {scale.scale_type}  |  {pretty}  |  {notes} notes heard  |  "
+                f"{len(self.aliens())} at the party  |  mic: {src.device_name if src else '?'}")
         if getattr(src, "silent_for", 0.0) > 2.0:
             info += "  |  MIC SILENT - check it is unmuted and the default input"
-        self.screen.blit(self.small_font.render(info, True, (190, 190, 215)), (20, 106))
-        meter = pygame.Rect(20, 128, 200, 10)
+        self.screen.blit(self.small_font.render(info, True, (190, 190, 215)), (20, 54))
+        meter = pygame.Rect(20, 76, 200, 10)
         pygame.draw.rect(self.screen, (40, 40, 60), meter, border_radius=3)
         lvl = src.level if src else 0.0
         if lvl > 0:
             fill = meter.copy()
             fill.width = int(meter.width * lvl)
             pygame.draw.rect(self.screen, (120, 220, 140), fill, border_radius=3)
-        self.screen.blit(self.small_font.render("mic level", True, (150, 150, 175)), (228, 124))
+        self.screen.blit(self.small_font.render("mic level", True, (150, 150, 175)), (228, 72))
 
         keys = "[R] shuffle crowd   [Esc] quit"
         if isinstance(src, DemoSource):
