@@ -22,7 +22,10 @@
 #   python Receiver.py song.mid
 #   python Receiver.py --mic
 #   python Receiver.py recording.wav
-#   python Receiver.py --message
+#   python Receiver.py --message            (shows a live level meter while it listens)
+#   python Receiver.py --devices            (list microphones)
+#   python Receiver.py --level              (only show how loud the microphone is; needs no model)
+#   python Receiver.py --message 2          (use microphone number 2)
 
 import sys
 
@@ -238,11 +241,17 @@ def decode_recording(wav_path):
     return receiver.text
 
 
-def listen_message(device=None):
+def listen_message(device=None, on_block=None):
     """Listen to the microphone and yield the message's characters as they are decoded.
 
     Waits for a message to start, and stops when it ends (a whole character's
     worth of silence on the rhythm).
+
+    device:   sounddevice input device number or name (default: the system's default input).
+    on_block: optional function called about 5 times a second with (loudness, note_strength),
+              where loudness is the RMS level of the microphone and note_strength (0 to 1) is
+              how sure the model is that it just heard one of the key's notes. For showing
+              what the receiver is hearing while it waits.
     """
     import sounddevice as sd
 
@@ -252,21 +261,73 @@ def listen_message(device=None):
         while not receiver.finished:
             samples, _ = stream.read(block)
             new_text = receiver.add_audio(samples[:, 0])
+            if on_block is not None:
+                recent = receiver.probs[:, -8:]
+                on_block(float(np.sqrt(np.mean(samples ** 2))), float(recent.max()) if recent.size else 0.0)
             if new_text:
                 yield new_text
+
+
+def _run_level_cli(device):
+    """python Receiver.py --level [device]: just show how loud the microphone is. Needs no model."""
+    import sounddevice as sd
+
+    print('Microphone: %s   (Ctrl+C to stop)\n' % sd.query_devices(device, 'input')['name'], flush=True)
+    try:
+        with sd.InputStream(samplerate=22050, channels=1, blocksize=4096, device=device) as stream:
+            while True:
+                samples, _ = stream.read(4096)
+                loudness = float(np.sqrt(np.mean(samples ** 2)))
+                print('\rlevel %-30s %.4f' % ('#' * min(30, int(loudness * 600)), loudness), end='', flush=True)
+    except KeyboardInterrupt:
+        print()
+
+
+def _run_message_cli(device):
+    """python Receiver.py --message [device]: decode live, showing what the microphone hears."""
+    import sounddevice as sd
+
+    info = sd.query_devices(device, 'input')
+    print('Microphone: %s' % info['name'])
+    print('Loading the model (this can take a minute the first time)...', flush=True)
+
+    state = {'text': '', 'silent_blocks': 0, 'warned': False, 'started': False}
+
+    def show(loudness, note_strength):
+        if not state['started']:
+            state['started'] = True
+            print('Listening. Waiting for a message... (Ctrl+C to stop)\n', flush=True)
+        state['silent_blocks'] = state['silent_blocks'] + 1 if loudness < 1e-5 else 0
+        if state['silent_blocks'] > 15 and not state['warned']:
+            state['warned'] = True
+            print('\nThe microphone is giving complete silence. Check that this terminal is allowed to use '
+                  'the microphone,\nthat the microphone is not muted, and that the right one is selected '
+                  '(python Receiver.py --devices).', flush=True)
+        bar = '#' * min(30, int(loudness * 600))
+        print('\rlevel %-30s  note heard %3d%%  message: %s' % (bar, round(note_strength * 100), state['text'].replace('\n', ' ')),
+              end='', flush=True)
+
+    try:
+        for text in listen_message(device, on_block=show):
+            state['text'] += text
+        print('\n\nMessage: %s' % state['text'])
+    except KeyboardInterrupt:
+        print('\n\nStopped. Message so far: %s' % state['text'])
 
 
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1].endswith('.wav'):
         print(decode_recording(sys.argv[1]))
+    elif len(sys.argv) > 1 and sys.argv[1] == '--devices':
+        import sounddevice as sd
+        print(sd.query_devices())
+        print('\nUse a microphone by its number:  python Receiver.py --message 2')
+    elif len(sys.argv) > 1 and sys.argv[1] == '--level':
+        chosen = sys.argv[2] if len(sys.argv) > 2 else None
+        _run_level_cli(int(chosen) if chosen is not None and chosen.isdigit() else chosen)
     elif len(sys.argv) > 1 and sys.argv[1] == '--message':
-        print('Waiting for a message... (Ctrl+C to stop)', flush=True)
-        try:
-            for text in listen_message():
-                print(text, end='', flush=True)
-            print()
-        except KeyboardInterrupt:
-            pass
+        chosen = sys.argv[2] if len(sys.argv) > 2 else None
+        _run_message_cli(int(chosen) if chosen is not None and chosen.isdigit() else chosen)
     elif len(sys.argv) > 1 and sys.argv[1] != '--mic':
         print(' '.join(roots_from_midi(sys.argv[1])))
     else:
