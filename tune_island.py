@@ -20,6 +20,7 @@ Run:
 Controls:
     type        edit the message (island rebuilds live, song restarts after a pause)
     Enter       replay from the start
+    Tab         toggle looping (on: the song repeats; off: it plays once and stops)
     [ / ]       nudge the sync offset (visuals wait for slow audio devices,
                 e.g. Bluetooth headphones); remembered between runs
     Ctrl+Bksp   delete the last word
@@ -59,7 +60,7 @@ VIEW_SCALE = 2                   # sprite scale (island can reach 13x13)
 WINDOW = (1024, 800)
 TEMPO = 200
 RETYPE_DELAY = 0.7               # seconds of quiet typing before the song (re)starts
-LOOP_GAP = 1.0                   # pause before the song loops
+LOOP_GAP = 3.0                   # pause before the song loops
 MAX_MONSTERS = 18
 MIN_SING = 0.24                  # shortest visible sing, seconds (quavers are 0.3s apart)
 DEFAULT_LATENCY = 0.15           # seconds the visuals wait for the audio device
@@ -154,6 +155,7 @@ class TuneIsland(MonsterLand):
         self.events = []
         self.song_end = 0.0
         self.playing = False
+        self.is_looping = True                        # Tab toggles; off = play once, then stop
         self.play_started = 0.0
         self.dirty_since = None
         self.particles = []
@@ -393,6 +395,8 @@ class TuneIsland(MonsterLand):
             elif ev.key == pygame.K_RETURN:
                 self.dirty_since = None
                 self.start_playback()
+            elif ev.key == pygame.K_TAB:
+                self.is_looping = not self.is_looping
             elif ev.key == pygame.K_LEFTBRACKET:
                 self.set_latency(self.latency - LATENCY_STEP)
             elif ev.key == pygame.K_RIGHTBRACKET:
@@ -411,8 +415,12 @@ class TuneIsland(MonsterLand):
             # sound actually leaves the speakers / headphones
             t = now - self.play_started - self.latency
             if t > self.song_end + LOOP_GAP:
-                self.start_playback()
-                t = 0.0
+                if self.is_looping:
+                    self.start_playback()
+                    t = 0.0
+                else:
+                    self.stop_playback()      # played once: stop until Enter or new typing
+        if self.playing:
             active = set()
             for e in self.events:
                 if e.start > t:
@@ -501,7 +509,7 @@ class TuneIsland(MonsterLand):
         elif self.dirty_since is not None:
             status = "typing..."
         elif self.events:
-            status = "paused"
+            status = "finished" if not self.is_looping else "paused"
         else:
             status = "silent"
         singing = sum(1 for m in self.monsters if m.singing)
@@ -512,7 +520,7 @@ class TuneIsland(MonsterLand):
         self.screen.blit(self.small_font.render(info, True, (190, 190, 215)), (20, 94))
 
         hint = self.font.render(
-            f"[Enter] replay   [Ctrl+Backspace] delete word   "
+            f"[Enter] replay   [Tab] loop: {'on' if self.is_looping else 'off'}   [Ctrl+Backspace] delete word   "
             f"[ / ] sync offset: {int(self.latency * 1000)} ms   [Esc] quit", True, (150, 150, 175))
         self.screen.blit(hint, (12, self.win_h - 28))
 
