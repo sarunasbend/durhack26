@@ -8,5 +8,5 @@ class Characters(object):
                 "abcdefghijklmnopqrstuvwxyz"
                 "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                 "0123456789"
-                " .,!?;:'\"()-\n/"
+                " .,!?;:'\"()-\n/`"
             )

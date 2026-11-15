@@ -6,6 +6,6 @@
 # takes and retrain (see training/README.md).
 
 KEY = 'f#'
-SCALE_TYPE = 'major-pentatonic'
+SCALE_TYPE = 'lydian'
 TEMPO = 200
 DRONE = 'F#2'   # False for no drone

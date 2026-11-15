@@ -93,6 +93,8 @@ class Encoder(object):
 
         previous_time = 0
 
+        stream = ["`"] + stream
+
         for c in stream:
             output_stream += self.encoding_table[c]
             for i in range(self.configuration.cluster_size):

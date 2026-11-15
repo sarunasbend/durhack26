@@ -15,9 +15,6 @@ def transmit(composer):
     sender = SenderGUI(transmitter=transmitter, encoder=composer)
     sender.run()
 
-    # reciever = ReceiverGUI(transmitter=transmitter, encoder=composer)
-    # reciever.run()
-
 def receive(composer):
     print("Setting up Receiver")
     transmitter = t.Transmitter()
