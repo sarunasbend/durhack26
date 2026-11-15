@@ -35,6 +35,7 @@ import pygame
 
 import Avison
 import Settings
+from Receiver import MESSAGE_MARK, between_marks
 from Notes import Notes
 from Transmitter import Transmitter
 import monster_land as ml
@@ -72,19 +73,6 @@ FLASH_TIME = 0.35                            # Joe stays lit this long after a n
 PARTICLE_LIFE = 1.1
 
 
-START_MARK = "`"                             # Encoder puts this before every message
-
-
-def after_start_mark(decoded):
-    """The message proper: everything after the first start mark, or '' if it has not arrived yet.
-
-    The sender begins every message with a backtick. Nothing is shown until it has been
-    decoded, and the mark itself is never shown. Anything decoded before it is dropped.
-    """
-    at = decoded.find(START_MARK)
-    return decoded[at + 1:] if at >= 0 else ""
-
-
 # ============================================================================ sources
 class MicSource:
     """Microphone + trained model, run in a background thread.
@@ -93,7 +81,7 @@ class MicSource:
         status   'loading model', 'listening', 'waiting for start', 'receiving', 'done', 'error: ...'
         level    0..1 loudness right now
         notes    note names heard so far in the current message
-        text     decoded text of the current message, from after its start mark
+        text     decoded text of the current message, between its start and end marks
         active   True while a message is being received
         history  texts of finished messages
         device   name of the microphone
@@ -133,7 +121,7 @@ class MicSource:
             except Exception:
                 pass
             block = 8 * common.HOP
-            done_at = None
+            showing_last = False     # the last message has ended and is still on screen
             self.status = "listening"
             with sd.InputStream(samplerate=common.SR, channels=1, blocksize=block, device=self.device) as stream:
                 while not self._stop.is_set():
@@ -142,25 +130,29 @@ class MicSource:
                     rms = float(np.sqrt(np.mean(mono ** 2)))
                     self.silent_for = self.silent_for + len(mono) / common.SR if rms == 0.0 else 0.0
                     self.level = max(0.0, min(1.0, (rms - LEVEL_FLOOR) / (LEVEL_CEIL - LEVEL_FLOOR)))
-                    if done_at is not None:
-                        if time.perf_counter() - done_at > 1.5:   # breathe, then wait for the next message
-                            receiver = make()
-                            done_at = None
-                            self.notes, self.text, self.active = [], "", False
-                            self.status = "listening"
-                        continue
                     receiver.add_audio(mono)
+                    if showing_last:
+                        # Already listening for the next message. The finished one stays on
+                        # screen until the next one's first notes arrive.
+                        if receiver.clock is None:
+                            continue
+                        showing_last = False
+                    # A message runs from the sender's mark (a backtick) to the next mark,
+                    # or until the music stops. The marks are never shown.
+                    message, ended = between_marks(receiver.text)
                     self.notes = list(receiver.notes)
-                    self.text = after_start_mark(receiver.text)
+                    self.text = message
                     self.active = receiver.clock is not None
-                    if receiver.finished:
+                    if ended or receiver.finished:
+                        if message:
+                            self.history.append(message)
                         self.status = "done"
-                        if self.text:
-                            self.history.append(self.text)
-                        done_at = time.perf_counter()
+                        self.active = False
+                        receiver = make()          # restart listening straight away
+                        showing_last = True
                     elif self.active:
                         # notes are arriving, but nothing counts until the start mark is decoded
-                        self.status = "receiving" if START_MARK in receiver.text else "waiting for start"
+                        self.status = "receiving" if MESSAGE_MARK in receiver.text else "waiting for start"
         except Exception as exc:                      # no model, no mic, torch missing...
             self.error = str(exc)
             self.status = f"error: {exc}"
@@ -231,7 +223,7 @@ class DemoSource:
             sure = self.notes[: len(self.notes) // self.size * self.size]
             decoded = "".join(self.table.get(",".join(sure[i:i + self.size]), "?")
                               for i in range(0, len(sure), self.size))
-            self.text = after_start_mark(decoded)
+            self.text, _ = between_marks(decoded)
         sounding = any(s <= t < s + m["duration"] * 60 / Settings.TEMPO for s, m in zip(self.starts, self.metadata))
         self.level = 0.8 if sounding else 0.0
         was_active = self.active

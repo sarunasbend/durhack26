@@ -6,7 +6,10 @@
 #
 # And, using the trained model in training/ (see training/README.md):
 #   decode_recording('take.wav')   -> the decoded text of a recorded message
-#   for chars in listen_message(): -> yields decoded characters live from the microphone
+#   for chars in listen_message(): -> yields one message's characters live from the microphone
+#   for kind, value in listen_messages(): -> the same for message after message, without stopping
+#
+# A message starts at the sender's mark (a backtick) and ends at the next one.
 #
 # Roots come back as note names with an octave (e.g. 'F#4'), in the same
 # format as the notes table in Encoder.py.
@@ -225,27 +228,53 @@ def listen(device=None):
 # training/common.py's MessageReceiver follows the sender's rhythm and turns
 # the notes into text. Needs torch, so it is only imported when used.
 
+MESSAGE_MARK = '`'   # the sender plays this before every message; hearing it again ends the message
+
+
+def between_marks(decoded):
+    """Pick the message out of everything decoded so far. Returns (message, ended).
+
+    The message is what follows the first mark, up to the second mark if there is one.
+    Nothing counts until the first mark has been decoded, and the marks are never part
+    of the message. ended is True once the second mark has arrived.
+    """
+    start = decoded.find(MESSAGE_MARK)
+    if start < 0:
+        return '', False
+    end = decoded.find(MESSAGE_MARK, start + 1)
+    if end < 0:
+        return decoded[start + 1:], False
+    return decoded[start + 1:end], True
+
+
 def _message_receiver():
+    """Returns (common, a function that makes a fresh MessageReceiver). The model is loaded once."""
     import os
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'training'))
     import common
     # The model is chosen by the instrument Transmitter.py plays; the key and scale come from Settings.py.
-    return common, common.MessageReceiver(common.load_model(), common.make_composer())
+    model, composer = common.load_model(), common.make_composer()
+    return common, lambda: common.MessageReceiver(model, composer)
 
 
 def decode_recording(wav_path):
     """Decoded text of a recorded message (a mono 22050 Hz .wav, as collect.py saves)."""
-    common, receiver = _message_receiver()
+    common, make_receiver = _message_receiver()
+    receiver = make_receiver()
     receiver.add_audio(common.load_wav(wav_path))
     receiver.finish()
     return receiver.text
 
 
-def listen_message(device=None, on_block=None):
-    """Listen to the microphone and yield the message's characters as they are decoded.
+def listen_messages(device=None, on_block=None):
+    """Listen to the microphone for one message after another, until the generator is closed.
 
-    Waits for a message to start, and stops when it ends (a whole character's
-    worth of silence on the rhythm).
+    Yields ('text', new_characters) as a message is decoded, and ('end', whole_message)
+    when it ends. It then goes straight back to listening for the next message.
+
+    A message starts at the sender's mark (a backtick) and ends at the next mark, or when
+    the music stops (a whole character's worth of silence on the rhythm). The marks are
+    not part of the text.
 
     device:   sounddevice input device number or name (default: the system's default input).
     on_block: optional function called about 5 times a second with (loudness, note_strength, receiver):
@@ -255,8 +284,10 @@ def listen_message(device=None, on_block=None):
     import queue
     import sounddevice as sd
 
-    common, receiver = _message_receiver()
+    common, make_receiver = _message_receiver()
+    receiver = make_receiver()
     receiver.dropped = 0   # times the sound card had to throw audio away
+    sent = ''              # characters of the current message already yielded
     block = 8 * common.HOP  # ~0.19 s of audio at a time
     waiting = queue.Queue()
 
@@ -268,16 +299,41 @@ def listen_message(device=None, on_block=None):
         waiting.put(samples[:, 0].copy())
 
     with sd.InputStream(samplerate=common.SR, channels=1, blocksize=block, device=device, callback=capture):
-        while not receiver.finished:
+        while True:
             samples = waiting.get()
             while not waiting.empty():          # catch up if we have fallen behind
                 samples = np.concatenate([samples, waiting.get_nowait()])
-            new_text = receiver.add_audio(samples)
+            receiver.add_audio(samples)
+            message, ended = between_marks(receiver.text)
             if on_block is not None:
                 recent = receiver.probs[:, -8:]
                 on_block(float(np.sqrt(np.mean(samples ** 2))), float(recent.max()) if recent.size else 0.0, receiver)
-            if new_text:
-                yield new_text
+            if len(message) > len(sent):
+                yield 'text', message[len(sent):]
+                sent = message
+            if ended or receiver.finished:
+                if MESSAGE_MARK in receiver.text:    # a real message, not noise that never had a start mark
+                    yield 'end', message
+                # Start again with a fresh receiver, so the next message is caught from its first note.
+                dropped = receiver.dropped
+                receiver = make_receiver()
+                receiver.dropped = dropped
+                sent = ''
+
+
+def listen_message(device=None, on_block=None):
+    """Listen for one message and yield its characters as they are decoded, then stop.
+
+    See listen_messages for how a message starts and ends.
+    """
+    messages = listen_messages(device, on_block)
+    try:
+        for kind, value in messages:
+            if kind == 'end':
+                return
+            yield value
+    finally:
+        messages.close()   # closes the microphone
 
 
 def _run_level_cli(device):
@@ -328,11 +384,15 @@ def _run_message_cli(device):
         print('\rlevel %-20s note %3d%%%s  %-60s' % (bar, round(note_strength * 100), lost, detail), end='', flush=True)
 
     try:
-        for text in listen_message(device, on_block=show):
-            state['text'] += text
-        print('\n\nMessage: %s' % state['text'])
+        for kind, value in listen_messages(device, on_block=show):
+            if kind == 'text':
+                state['text'] += value
+            else:
+                # A message has ended: print it on its own line, then keep listening for the next.
+                print('\r%-110s\rMessage: %s' % ('', value), flush=True)
+                state['text'] = ''
     except KeyboardInterrupt:
-        print('\n\nStopped. Message so far: %s' % state['text'])
+        print('\n\nStopped.' + (' Message so far: %s' % state['text'] if state['text'] else ''))
 
 
 if __name__ == '__main__':
