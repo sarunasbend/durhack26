@@ -18,8 +18,9 @@ Run:
     python tune_island.py [key] [scale] [--latency 0.2]   e.g. python tune_island.py f# major-pentatonic
 
 Controls:
-    type        edit the message (island rebuilds live, song restarts after a pause)
-    Enter       replay from the start
+    type        edit the message (the island rebuilds live; nothing plays yet)
+    Send / Enter   transmit: play the tune once from the start
+    Sheet music / F2   export the tune as sheet music, encrypted.pdf, next to this file
     [ / ]       nudge the sync offset (visuals wait for slow audio devices,
                 e.g. Bluetooth headphones); remembered between runs
     Ctrl+Bksp   delete the last word
@@ -38,6 +39,7 @@ from collections import Counter
 import pygame
 
 import Avison
+import sheet_music
 from Characters import Characters
 from Notes import Notes
 from Transmitter import Transmitter
@@ -58,7 +60,9 @@ TOP_MARGIN = 128                 # text panel height
 VIEW_SCALE = 2                   # sprite scale (island can reach 13x13)
 WINDOW = (1024, 800)
 TEMPO = 200
-RETYPE_DELAY = 0.7               # seconds of quiet typing before the song (re)starts
+SEND_BTN_W, PDF_BTN_W, BTN_H = 110, 170, 44
+PDF_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "encrypted.pdf")
+FLASH_TIME_HUD = 4.0             # seconds a status flash (e.g. 'saved encrypted.pdf') stays
 LOOP_GAP = 1.0                   # pause before the song loops
 MAX_MONSTERS = 18
 MIN_SING = 0.24                  # shortest visible sing, seconds (quavers are 0.3s apart)
@@ -135,7 +139,7 @@ class SingEvent:
 
 
 class TuneIsland(MonsterLand):
-    def __init__(self, composer, tempo=TEMPO, latency=None):
+    def __init__(self, composer, tempo=TEMPO, latency=None, loop=False):
         self.composer = composer
         self.tempo = tempo
         self.latency = latency if latency is not None else self._load_latency()
@@ -154,8 +158,12 @@ class TuneIsland(MonsterLand):
         self.events = []
         self.song_end = 0.0
         self.playing = False
+        self.loop = loop             # False: play once, then call on_song_end()
         self.play_started = 0.0
-        self.dirty_since = None
+        self.dirty_since = None      # set when the text changed since the last send
+        self.sent_once = False
+        self.flash = None            # (message, until) shown in the status line
+        self.buttons = {}            # name -> Rect, filled in by _draw_hud
         self.particles = []
         self.midi_path = os.path.join(tempfile.gettempdir(), "tune_island.mid")
         self.audio_ok = False
@@ -365,6 +373,34 @@ class TuneIsland(MonsterLand):
         self.play_started = time.perf_counter()
         self.playing = True
 
+    # ------------------------------------------------------------------ actions
+    def send(self):
+        """Transmit the current message: play the tune once from the start."""
+        if not self.events:
+            self._say("nothing to send - type a message first")
+            return
+        self.dirty_since = None
+        self.sent_once = True
+        self.start_playback()
+
+    def export_sheet_music(self):
+        """Write the tune as sheet music to encrypted.pdf and open it."""
+        if not self.encoded:
+            self._say("nothing to export - type a message first")
+            return
+        try:
+            pages = sheet_music.render_pdf(self.encoded, self.metadata, self.composer, self.tempo,
+                                           self.drone_note, PDF_PATH, len(self.text))
+        except Exception as exc:
+            print(f"[tune_island] sheet music export failed: {exc}")
+            self._say(f"export failed: {exc}")
+            return
+        self._say(f"saved {os.path.basename(PDF_PATH)} ({pages} page{'s' if pages != 1 else ''})")
+        sheet_music.open_file(PDF_PATH)
+
+    def _say(self, message):
+        self.flash = (message, time.perf_counter() + FLASH_TIME_HUD)
+
     # ------------------------------------------------------------------ input
     def _set_text(self, text):
         if text == self.text:
@@ -390,29 +426,39 @@ class TuneIsland(MonsterLand):
                     self._set_text(words.rsplit(" ", 1)[0] + " " if " " in words else "")
                 else:
                     self._set_text(self.text[:-1])
-            elif ev.key == pygame.K_RETURN:
-                self.dirty_since = None
-                self.start_playback()
+            elif ev.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                self.send()
+            elif ev.key == pygame.K_F2:
+                self.export_sheet_music()
             elif ev.key == pygame.K_LEFTBRACKET:
                 self.set_latency(self.latency - LATENCY_STEP)
             elif ev.key == pygame.K_RIGHTBRACKET:
                 self.set_latency(self.latency + LATENCY_STEP)
+        elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
+            if self.buttons.get("send", pygame.Rect(0, 0, 0, 0)).collidepoint(ev.pos):
+                self.send()
+            elif self.buttons.get("pdf", pygame.Rect(0, 0, 0, 0)).collidepoint(ev.pos):
+                self.export_sheet_music()
         return True
 
     # ------------------------------------------------------------------ update
+    def on_song_end(self):
+        """Hook: called once when a non-looping song has finished."""
+
     def update(self, dt):
         now = time.perf_counter()
-        if self.dirty_since is not None and now - self.dirty_since >= RETYPE_DELAY:
-            self.dirty_since = None
-            self.start_playback()
-
         if self.playing:
             # visuals run `latency` behind the mixer clock so they land when the
             # sound actually leaves the speakers / headphones
             t = now - self.play_started - self.latency
             if t > self.song_end + LOOP_GAP:
-                self.start_playback()
-                t = 0.0
+                if self.loop:
+                    self.start_playback()
+                    t = 0.0
+                else:
+                    self.stop_playback()
+                    self.on_song_end()
+                    return
             active = set()
             for e in self.events:
                 if e.start > t:
@@ -480,7 +526,8 @@ class TuneIsland(MonsterLand):
         label = self.small_font.render("Type a message for the monsters to sing:", True, (170, 170, 200))
         self.screen.blit(label, (20, 14))
 
-        box = pygame.Rect(20, 38, self.win_w - 40, 44)
+        box = pygame.Rect(20, 38, self.win_w - 40 - SEND_BTN_W - PDF_BTN_W - 20, BTN_H)
+        self._draw_buttons(box.right + 10, box.y)
         pygame.draw.rect(self.screen, (24, 24, 40), box, border_radius=6)
         pygame.draw.rect(self.screen, (120, 110, 170), box, 2, border_radius=6)
         caret = "|" if (pygame.time.get_ticks() // 500) % 2 == 0 else " "
@@ -495,15 +542,17 @@ class TuneIsland(MonsterLand):
 
         # status line
         scale = self.composer.scale
-        if self.playing:
+        if self.flash and time.perf_counter() < self.flash[1]:
+            status = self.flash[0]
+        elif self.playing:
             t = min(max(0.0, time.perf_counter() - self.play_started - self.latency), self.song_end)
-            status = f"playing {t:4.1f}s / {self.song_end:4.1f}s"
-        elif self.dirty_since is not None:
-            status = "typing..."
-        elif self.events:
-            status = "paused"
+            status = f"sending {t:4.1f}s / {self.song_end:4.1f}s"
+        elif not self.events:
+            status = "type a message, then Send"
+        elif self.dirty_since is not None or not self.sent_once:
+            status = "ready - press Send"
         else:
-            status = "silent"
+            status = "sent"
         singing = sum(1 for m in self.monsters if m.singing)
         info = (f"{scale.key} {scale.scale_type}  |  {len(self.text)} chars -> {len(self.encoded)} notes  |  "
                 f"{len(self.monsters)} monsters ({singing} singing)  |  {status}")
@@ -512,9 +561,25 @@ class TuneIsland(MonsterLand):
         self.screen.blit(self.small_font.render(info, True, (190, 190, 215)), (20, 94))
 
         hint = self.font.render(
-            f"[Enter] replay   [Ctrl+Backspace] delete word   "
+            f"[Enter] send   [F2] sheet music PDF   [Ctrl+Backspace] delete word   "
             f"[ / ] sync offset: {int(self.latency * 1000)} ms   [Esc] quit", True, (150, 150, 175))
         self.screen.blit(hint, (12, self.win_h - 28))
+
+    def _draw_buttons(self, x, y):
+        mouse = pygame.mouse.get_pos()
+        specs = (("send", "Send", SEND_BTN_W, (70, 150, 90), bool(self.events)),
+                 ("pdf", "Sheet music", PDF_BTN_W, (90, 90, 160), bool(self.encoded)))
+        for name, label, w, colour, enabled in specs:
+            rect = pygame.Rect(x, y, w, BTN_H)
+            self.buttons[name] = rect
+            fill = colour if enabled else (50, 50, 64)
+            if enabled and rect.collidepoint(mouse):
+                fill = tuple(min(255, c + 35) for c in colour)
+            pygame.draw.rect(self.screen, fill, rect, border_radius=6)
+            pygame.draw.rect(self.screen, (150, 150, 190) if enabled else (80, 80, 100), rect, 2, border_radius=6)
+            text = self.big_font.render(label, True, (245, 245, 250) if enabled else (130, 130, 150))
+            self.screen.blit(text, text.get_rect(center=rect.center))
+            x += w + 10
 
     def run(self):
         while self.step():
