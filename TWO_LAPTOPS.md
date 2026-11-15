@@ -38,8 +38,9 @@ Run every command from the `durhack26` folder, with the project's Python environ
 |---|---|---|
 | 10 | | `git pull` to get the new model |
 | 11 | Unplug the mic. | Plug the mic into B and make it the default input. Put it in the same spot as in stage 2. |
+| 11a | | **On Windows: turn off the mic's audio processing.** Settings > System > Sound > Input > the mic's properties > "Audio enhancements" off. With it on, Windows removes held notes as if they were noise and the message comes out wrong. |
 | 12 | Set `message` in `main.py` to at least two characters (it is empty at the moment). | |
-| 13 | | `python Receiver.py --message` and wait for "Waiting for a message..." |
+| 13 | | `python Receiver.py --message` and wait for "Listening. Waiting for a message..." |
 | 14 | `python main.py` | Text appears as it is decoded. It stops by itself when the message ends. |
 
 ## If something goes wrong
@@ -51,4 +52,5 @@ Run every command from the `durhack26` folder, with the project's Python environ
 | No sound in step 5 | A's output is muted or going to headphones. |
 | `evaluate.py` scores are very low | The mic was not the default input during recording, so the takes are silence or the built-in mic. |
 | B prints nothing in step 14 | B started listening after A started playing, or B's default input is not the mic. |
+| B decodes part of the message, with wrong characters or an early stop ("5el?" for "Yellow") | Windows audio enhancements are on for the mic. Turn them off (step 11a). |
 | B prints mostly `?` | A and B have different `Settings.py` or `Transmitter.py` (pull on both), or the mic is much further away than in stage 2. |
