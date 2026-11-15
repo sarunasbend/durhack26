@@ -509,8 +509,7 @@ def _angle(tile, c):
     import math
     return math.atan2(tile[1] - c, tile[0] - c)
 
-
-if __name__ == "__main__":
+def islandInit():
     args = sys.argv[1:]
     latency = None
     if "--latency" in args:                       # e.g. --latency 0.25
@@ -521,3 +520,6 @@ if __name__ == "__main__":
     scale_type = args[1] if len(args) > 1 else "major-pentatonic"
     composer = Avison.Composer(key, scale_type)
     TuneIsland(composer, latency=latency).run()
+
+if __name__ == "__main__":
+    islandInit()

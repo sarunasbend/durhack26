@@ -4,6 +4,7 @@ import pygame
 import Settings
 from Transmitter import Transmitter
 from Avison import Composer
+from tune_island import TuneIsland
 
 try:
     from PIL import Image, ImageSequence
@@ -15,13 +16,14 @@ class SenderGUI:
     def __init__(self, transmitter: Transmitter, encoder: Composer):
         self.transmitter = transmitter
         self.encoder = encoder
+        self.island = None
         self.path = "out.mid"
 
         pygame.init()
         pygame.mixer.init()
 
-        self.width = 800
-        self.height = 1000
+        self.width = 1024
+        self.height = 800
         self.screen = pygame.display.set_mode((self.width, self.height))
         pygame.display.set_caption("Sender")
 
@@ -231,9 +233,6 @@ class SenderGUI:
         self.transmitter.write(notes, metadata, None, 0)
         self.transmitter.save(self.path)
 
-    def _configure(self):
-        pass
-
     def _transmit(self, blocking=False):
         try:
             if not pygame.mixer.get_init():
@@ -250,12 +249,6 @@ class SenderGUI:
                             return
         except Exception as e:
             print(f"MIDI ERROR: {e}")
-
-    def _on_button_click(self):
-        print(f"[SenderGUI] Button clicked! Current input: {getattr(self, 'input_text', '')}")
-
-    def on_hover(self):
-        pass
 
     def _update_hover(self):
         if self.scene != "planet":
@@ -339,26 +332,15 @@ class SenderGUI:
         self.screen.blit(flash_surf, (0, 0))
 
         if p >= 1.0:
-            self.scene = "green"
-            self.green_fade_start = pygame.time.get_ticks()
+            try:
+                pygame.mixer.music.stop()
+            except Exception:
+                pass
+            self.island = TuneIsland(composer=self.encoder, tempo=Settings.TEMPO, latency=None)
+            self.scene = "island"
+            self.white_fade_start = pygame.time.get_ticks()
 
     def _draw(self):
-        if self.scene == "green":
-            self.screen.fill(self.green_color)
-
-            if hasattr(self, "green_fade_start"):
-                fade_elapsed = pygame.time.get_ticks() - self.green_fade_start
-                if fade_elapsed < 220:
-                    fade_alpha = int(255 * (1.0 - fade_elapsed / 220.0))
-                    flash_surf = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-                    flash_surf.fill((255, 255, 255, fade_alpha))
-                    self.screen.blit(flash_surf, (0, 0))
-                else:
-                    del self.green_fade_start
-
-            pygame.display.flip()
-            return
-
         if self.scene == "transitioning":
             self._draw_transition()
             pygame.display.flip()
@@ -392,25 +374,44 @@ class SenderGUI:
         pygame.display.flip()
 
     def run(self):
-        message = "Hello earth, this is your first contact with an alien."
-        encoded, metadata = self.encoder.encode_message(message)
-        self._generate_midi(encoded, metadata)
-
         clock = pygame.time.Clock()
 
         while self._running:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    self._running = False
+            if self.scene == "island":
+                dt = min(clock.tick(60) / 1000.0, 0.05)
+                for event in pygame.event.get():
+                    if not self.island.handle_event(event):
+                        self._running = False
 
-                elif event.type == pygame.MOUSEBUTTONDOWN:
-                    if event.button == 1:
-                        if self.scene == "planet":
-                            mx, my = event.pos
-                            if math.hypot(mx - self.planet_x, my - self.planet_y) <= self.planet_radius:
-                                self._start_planet_transition()
+                self.island.update(dt)
+                self.island.draw()
 
-            self._draw()
-            clock.tick(60)
+                if hasattr(self, "white_fade_start"):
+                    fade_elapsed = pygame.time.get_ticks() - self.white_fade_start
+                    if fade_elapsed < 300:
+                        alpha = int(255 * (1.0 - fade_elapsed / 300.0))
+                        flash_surf = pygame.Surface((self.island.win_w, self.island.win_h), pygame.SRCALPHA)
+                        flash_surf.fill((255, 255, 255, alpha))
+                        self.island.screen.blit(flash_surf, (0, 0))
+                    else:
+                        del self.white_fade_start
 
+                pygame.display.flip()
+            else:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        self._running = False
+
+                    elif event.type == pygame.MOUSEBUTTONDOWN:
+                        if event.button == 1:
+                            if self.scene == "planet":
+                                mx, my = event.pos
+                                if math.hypot(mx - self.planet_x, my - self.planet_y) <= self.planet_radius:
+                                    self._start_planet_transition()
+
+                self._draw()
+                clock.tick(60)
+
+        if self.island:
+            self.island.stop_playback()
         pygame.quit()
