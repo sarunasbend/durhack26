@@ -5,6 +5,7 @@ import Settings
 from ReceiverGUI import *
 from SenderGUI import *
 from Front import Front
+import tkinter.font as tkFont
 
 def transmit(composer):
     print("Setting up Transmitter")
@@ -44,8 +45,11 @@ def create_gui(composer):
     for x, y, size in stars:
         canvas.create_oval(x, y, x + size, y + size, fill="#faffe6", outline="")
 
-    canvas.create_text(220, 75, text="Planet Symphony", fill="#f4f6ff", font=("Segoe UI", 21, "bold"))
-    canvas.create_text(220, 108, text="CHOOSE YOUR MISSION", fill="#9cafd8", font=("Segoe UI", 9, "bold"))
+    big_font = tkFont.Font(family="consolas", size=26, weight="bold")
+    small_font = tkFont.Font(family="consolas", size=15, weight="normal")
+
+    canvas.create_text(220, 75, text="Planet Symphony", fill="#f4f6ff", font=big_font)
+    canvas.create_text(220, 108, text="CHOOSE YOUR MISSION", fill="#9cafd8", font=small_font)
 
     button_options = {
         "width": 18,
@@ -59,11 +63,17 @@ def create_gui(composer):
         bg="#586fff", fg="white", activebackground="#788aff", activeforeground="white",
         **button_options,
     )
+
+    transmit_button['font'] = small_font
+
     receive_button = tk.Button(
         root, text="RECEIVE", command=lambda: receive(composer),
         bg="#1b2b50", fg="#e1eaff", activebackground="#1e2536", activeforeground="white",
         **button_options,
     )
+
+    receive_button['font'] = small_font
+
     canvas.create_window(220, 177, window=transmit_button, width=190, height=46)
     canvas.create_window(220, 236, window=receive_button, width=190, height=46)
 

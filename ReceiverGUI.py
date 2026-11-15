@@ -29,11 +29,12 @@ class ReceiverGUI:
         self.width = 1024
         self.height = 800
         self.screen = pygame.display.set_mode((self.width, self.height))
-        pygame.display.set_caption("Sender")
+        pygame.display.set_caption("Receiver")
 
-        self.heading_font = pygame.font.Font(None, 48)
-        self.text_font = pygame.font.Font(None, 28)
-        self.button_font = pygame.font.Font(None, 32)
+        self.big_font = pygame.font.SysFont("consolas", 40)
+        self.letter_font = pygame.font.SysFont("consolas", 30, bold=True)
+        self.char_w = self.letter_font.size("M")[0]
+        self.small_font = pygame.font.SysFont("consolas", 15)
 
         current_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -341,13 +342,16 @@ class ReceiverGUI:
             except Exception:
                 pass
 
-            # @TODO : implement receiver island instead of tune island
             self.island = main()
             
             # self.island = TuneIsland(composer=self.encoder, tempo=Settings.TEMPO, latency=None)
             self.scene = "island"
             self.white_fade_start = pygame.time.get_ticks()
-
+    
+    def _write_text(self):
+        planet_name = self.big_font.render("Planet New'Wave'O",  True, (255, 255, 255))
+        self.screen.blit(planet_name, (310, 180))
+    
     def _draw(self):
         if self.scene == "transitioning":
             self._draw_transition()
@@ -357,6 +361,8 @@ class ReceiverGUI:
         self._update_hover()
 
         self._draw_background()
+
+        self._write_text()
 
         planet_pos = (int(self.planet_x), int(self.planet_y))
         self._draw_planet_glow(planet_pos)
