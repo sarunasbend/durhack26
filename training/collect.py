@@ -74,10 +74,16 @@ if __name__ == '__main__':
     parser.add_argument('--keys', default=','.join(common.KEYS), help='keys to cycle through, e.g. f#,c,g (default: all 12)')
     parser.add_argument('--noise', type=float, default=0, help='seconds of room noise to record (nothing played)')
     args = parser.parse_args()
+    if not args.takes and not args.noise:
+        parser.print_help()
+        print('\nNothing to record: give --takes and/or --noise, for example:\n'
+              '  python training/collect.py --noise 45 --takes 24')
+        raise SystemExit(1)
 
     folder = common.data_dir(common.current_program())
     os.makedirs(folder, exist_ok=True)
     keys = [k.strip().upper() for k in args.keys.split(',')]
+    print('Recording instrument %d into %s' % (common.current_program(), folder), flush=True)
 
     if args.noise:
         record_noise(os.path.join(folder, 'take_%04d' % next_index(folder)), args.noise)

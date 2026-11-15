@@ -8,6 +8,8 @@ been run live between two devices.
 
 ## Must do before the demo
 
+Step-by-step instructions for the two laptops are in `TWO_LAPTOPS.md`.
+
 - [ ] **Commit the work.** Nothing from this session is committed yet (branch `Receiver`).
 - [ ] **Live test between the two real devices.** Sender runs `python main.py`, receiver runs
       `python Receiver.py --message`. Expect it to be worse than the recorded tests at first.

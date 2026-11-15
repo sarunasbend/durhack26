@@ -32,7 +32,8 @@ if __name__ == '__main__':
     program = common.current_program()
 
     takes = common.load_takes(program)
-    train_takes = [t for t in takes if not common.is_validation(t)]
+    # Room-noise takes are always trained on, whatever their number.
+    train_takes = [t for t in takes if not t['notes'] or not common.is_validation(t)]
     val_takes = [t for t in takes if common.is_validation(t) and t['notes']]
     noise = [torch.from_numpy(t['audio']) for t in train_takes if not t['notes']]
     for take in train_takes:
