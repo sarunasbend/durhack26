@@ -11,7 +11,10 @@ if __name__ == "__main__":
     transmitter.tempo = Settings.TEMPO
     transmitter.drone = Settings.DRONE
 
-    reciever = ReceiverGUI(transmitter=transmitter, encoder=composer)
-    reciever.run()
+    # sender = SenderGUI(transmitter=transmitter, encoder=composer)
+    # sender.run()
+
+    # reciever = ReceiverGUI(transmitter=transmitter, encoder=composer)
+    # reciever.run()
 
     
