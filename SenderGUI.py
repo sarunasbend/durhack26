@@ -20,8 +20,9 @@ class SenderGUI:
     # generates midi file
     def _generate_midi(self, notes, metadata):
         self.transmitter.config()
-        self.transmitter.write(notes, metadata, 0)
-        self.transmitter.save("out.mid")        
+        # write(notes, note_metadata, metadata, track_num)
+        self.transmitter.write(notes, metadata, None, 0)
+        self.transmitter.save(self.path)
 
     def _configure(self):
         pass

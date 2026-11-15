@@ -1,3 +1,7 @@
 MIDIUtil
 numpy
 pygame
+pretty_midi
+sounddevice
+torch
+mido

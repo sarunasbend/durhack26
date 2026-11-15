@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Virtual environment (created in the repo root)
+bin/
+lib/
+include/
+share/
+pyvenv.cfg
+.venv/
+venv/
+
+# macOS / editors
+.DS_Store
+.vscode/
+.idea/
+
+# Files main.py generates each run
+out.mid
+debug_encode.txt
+
+# Training recordings: large, and the microphone picked up people talking.
+# Copy training/data/ between machines by hand; training/model.pt is kept in git.
+training/data/
+training/archive_*/

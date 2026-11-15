@@ -4,6 +4,10 @@
 #   roots_from_midi('song.mid')   -> ['D4', 'G3', 'A3', ...]   one root per note/chord
 #   for root in listen(): ...      -> yields roots live from the microphone
 #
+# And, using the trained model in training/ (see training/README.md):
+#   decode_recording('take.wav')   -> the decoded text of a recorded message
+#   for chars in listen_message(): -> yields decoded characters live from the microphone
+#
 # Roots come back as note names with an octave (e.g. 'F#4'), in the same
 # format as the notes table in Encoder.py.
 #
@@ -17,6 +21,8 @@
 # Command line:
 #   python Receiver.py song.mid
 #   python Receiver.py --mic
+#   python Receiver.py recording.wav
+#   python Receiver.py --message
 
 import sys
 
@@ -211,8 +217,57 @@ def listen(device=None):
                         yield root
 
 
+# ----- Decoding a whole message with the trained model -------------------------
+# The model (training/models/instrument_NNN.pt) says which note started at each moment;
+# training/common.py's MessageReceiver follows the sender's rhythm and turns
+# the notes into text. Needs torch, so it is only imported when used.
+
+def _message_receiver():
+    import os
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'training'))
+    import common
+    # The model is chosen by the instrument Transmitter.py plays; the key and scale come from Settings.py.
+    return common, common.MessageReceiver(common.load_model(), common.make_composer())
+
+
+def decode_recording(wav_path):
+    """Decoded text of a recorded message (a mono 22050 Hz .wav, as collect.py saves)."""
+    common, receiver = _message_receiver()
+    receiver.add_audio(common.load_wav(wav_path))
+    receiver.finish()
+    return receiver.text
+
+
+def listen_message(device=None):
+    """Listen to the microphone and yield the message's characters as they are decoded.
+
+    Waits for a message to start, and stops when it ends (a whole character's
+    worth of silence on the rhythm).
+    """
+    import sounddevice as sd
+
+    common, receiver = _message_receiver()
+    block = 8 * common.HOP  # ~0.19 s of audio at a time
+    with sd.InputStream(samplerate=common.SR, channels=1, blocksize=block, device=device) as stream:
+        while not receiver.finished:
+            samples, _ = stream.read(block)
+            new_text = receiver.add_audio(samples[:, 0])
+            if new_text:
+                yield new_text
+
+
 if __name__ == '__main__':
-    if len(sys.argv) > 1 and sys.argv[1] != '--mic':
+    if len(sys.argv) > 1 and sys.argv[1].endswith('.wav'):
+        print(decode_recording(sys.argv[1]))
+    elif len(sys.argv) > 1 and sys.argv[1] == '--message':
+        print('Waiting for a message... (Ctrl+C to stop)', flush=True)
+        try:
+            for text in listen_message():
+                print(text, end='', flush=True)
+            print()
+        except KeyboardInterrupt:
+            pass
+    elif len(sys.argv) > 1 and sys.argv[1] != '--mic':
         print(' '.join(roots_from_midi(sys.argv[1])))
     else:
         try:

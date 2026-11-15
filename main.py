@@ -1,6 +1,7 @@
 import Avison as a
 import tkinter as tk
 import Transmitter as t
+import Settings
 from ReceiverGUI import *
 from Front import Front
 
@@ -28,20 +29,16 @@ def create_gui(composer):
 if __name__ == "__main__":
     message = "We are Ad Libertum T-Shirt, thank you for watching our demo!"
 
-    composer = a.Composer("f#", "major-pentatonic")
+    composer = a.Composer(Settings.KEY, Settings.SCALE_TYPE)
 
     # create_gui(composer)
 
     encoded, metadata = composer.encode_message(message)
-    f = open("debug_encode.txt", "w")
-    f.write(",".join(encoded))
-    f.close()
-
     transmitter = t.Transmitter()
     transmitter.config()
 
-    transmitter.tempo = 200
-    transmitter.drone = "F#2"
+    transmitter.tempo = Settings.TEMPO
+    transmitter.drone = Settings.DRONE
     
     transmitter.write(encoded, metadata, None, 0)
     transmitter.save("out.mid")
