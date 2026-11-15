@@ -8,6 +8,7 @@ import Settings
 from Transmitter import Transmitter
 from Avison import Composer
 from tune_island import TuneIsland
+from receiver_planet import main
 
 try:
     from PIL import Image, ImageSequence
@@ -341,6 +342,7 @@ class ReceiverGUI:
                 pass
 
             # @TODO : implement receiver island instead of tune island
+            self.island = main()
             
             # self.island = TuneIsland(composer=self.encoder, tempo=Settings.TEMPO, latency=None)
             self.scene = "island"
