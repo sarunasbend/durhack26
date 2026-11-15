@@ -2,3 +2,7 @@ MIDIUtil
 numpy
 pygame
 Pillow
+pretty_midi
+sounddevice
+torch
+mido

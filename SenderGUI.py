@@ -1,6 +1,7 @@
 import os
 import math
 import pygame
+import Settings
 from Transmitter import Transmitter
 from Avison import Composer
 
@@ -171,9 +172,9 @@ class SenderGUI:
 
     # generates midi file
     def _generate_midi(self, notes, metadata):
-        # remove droning if necessary
-        self.transmitter.tempo = 200
-        self.transmitter.drone = "C2"
+        # Tempo and drone come from Settings.py, which the receiver reads too.
+        self.transmitter.tempo = Settings.TEMPO
+        self.transmitter.drone = Settings.DRONE
 
         self.transmitter.config()
         self.transmitter.write(notes, metadata, None, 0)
