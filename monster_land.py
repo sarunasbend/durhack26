@@ -244,16 +244,20 @@ class MonsterLand:
         """Hook: the surface to draw for a monster in its current state."""
         return self.frames[m.kind][1 if m.singing else 0]
 
+    def offset_for(self, m):
+        """Hook: (dx, lift) in pixels applied to a monster's sprite this frame."""
+        if m.singing:
+            return 0, int(abs(math.sin(m.phase)) * 3 * self.scale)
+        return 0, 0
+
     def _draw_monster(self, m):
         sx, sy = self.grid_to_screen(m.gx, m.gy, m.height)
         foot_x = sx
         foot_y = sy + (TILE_TOP_H // 2) * self.scale   # centre of the top diamond
-        bob = 0
-        if m.singing:
-            bob = int(abs(math.sin(m.phase)) * 3 * self.scale)
+        dx, bob = self.offset_for(m)
         frame = self.frame_for(m)
         self.screen.blit(self.shadow, self.shadow.get_rect(center=(foot_x, foot_y)))
-        x = foot_x - FRAME_W * self.scale // 2
+        x = foot_x - FRAME_W * self.scale // 2 + dx
         y = foot_y - FEET_Y * self.scale - bob
         m.rect = self.screen.blit(frame, (x, y))
         if m.singing:

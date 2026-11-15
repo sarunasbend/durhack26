@@ -82,6 +82,47 @@ def fifths_key(name):
     return ((PITCH_CLASS[pc] * 7) % 12, octave)
 
 
+
+def pitch_colours(note_table, degrees, drone_note=None):
+    """Colour per pitch name: scale degree sets the hue, octave sets brightness
+    only (dark low octave -> bright high octave), so F#4 and F#5 share a hue."""
+    colours = {}
+    degrees = max(1, degrees)
+    octaves = max(1, len(note_table) // degrees)
+    for i, name in enumerate(note_table):
+        degree, octave = i % degrees, i // degrees
+        t = octave / max(1, octaves - 1)
+        col = pygame.Color(0)
+        col.hsva = (degree * 300 / degrees, 85,
+                    LOW_OCTAVE_BRIGHTNESS + (100 - LOW_OCTAVE_BRIGHTNESS) * t, 100)
+        colours[name] = col
+    if drone_note:
+        colours[drone_note] = pygame.Color(225, 225, 240)
+    return colours
+
+
+def recolour(frame, colour):
+    """Swap the sprite sheets' body grey (97) and shade grey (66) for a colour."""
+    h, s, v, _ = colour.hsva
+    body = pygame.Color(0)
+    body.hsva = (h, min(100, s), v, 100)
+    shade = pygame.Color(0)
+    shade.hsva = (h, min(100, s + 10), v * 0.6, 100)
+    out = frame.copy()
+    px = pygame.PixelArray(out)
+    px.replace(BODY_GREY, body)
+    px.replace(SHADE_GREY, shade)
+    px.close()
+    return out
+
+
+def load_note_cells(scale):
+    """The three glyphs in notes.png (quaver, crotchet, beamed pair), scaled."""
+    sheet = pygame.image.load(NOTES_PATH).convert_alpha()
+    return [pygame.transform.scale_by(
+        sheet.subsurface(pygame.Rect(i * NOTE_CELL, 0, NOTE_CELL, NOTE_CELL)), scale) for i in range(3)]
+
+
 class SingEvent:
     __slots__ = ("start", "end", "monster", "cell", "fired")
 
@@ -160,20 +201,8 @@ class TuneIsland(MonsterLand):
         for i in range(3):
             cell = sheet.subsurface(pygame.Rect(i * NOTE_CELL, 0, NOTE_CELL, NOTE_CELL))
             cells.append(pygame.transform.scale_by(cell, self.scale))
-        self.pitch_colour = {}
         self.note_sprites = {}        # (pitch_name, cell) -> tinted surface
-        # scale degree sets the hue; octave sets brightness only (dark low
-        # octave -> bright high octave) so F#4 and F#5 share a hue
-        degrees = max(1, len(self.composer.scale.scale))
-        octaves = max(1, len(self.note_table) // degrees)
-        for i, name in enumerate(self.note_table):
-            degree, octave = i % degrees, i // degrees
-            t = octave / max(1, octaves - 1)
-            col = pygame.Color(0)
-            col.hsva = (degree * 300 / degrees, 85,
-                        LOW_OCTAVE_BRIGHTNESS + (100 - LOW_OCTAVE_BRIGHTNESS) * t, 100)
-            self.pitch_colour[name] = col
-        self.pitch_colour[self.drone_note] = pygame.Color(225, 225, 240)
+        self.pitch_colour = pitch_colours(self.note_table, len(self.composer.scale.scale), self.drone_note)
         self.tinted = {}              # (pitch, kind) -> (idle, singing) recoloured frames
         for name, col in self.pitch_colour.items():
             for c, cell in enumerate(cells):
@@ -430,18 +459,7 @@ class TuneIsland(MonsterLand):
 
     @staticmethod
     def _recolour(frame, colour):
-        """Swap the sheet's body grey (97) and shade grey (66) for a pitch colour."""
-        h, s, v, _ = colour.hsva
-        body = pygame.Color(0)
-        body.hsva = (h, min(100, s), v, 100)
-        shade = pygame.Color(0)
-        shade.hsva = (h, min(100, s + 10), v * 0.6, 100)
-        out = frame.copy()
-        px = pygame.PixelArray(out)
-        px.replace(BODY_GREY, body)
-        px.replace(SHADE_GREY, shade)
-        px.close()
-        return out
+        return recolour(frame, colour)
 
     def _draw_notes(self, m, cx, top_y):
         pass  # replaced by sprite particles in draw_overlay
