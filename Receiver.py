@@ -248,22 +248,34 @@ def listen_message(device=None, on_block=None):
     worth of silence on the rhythm).
 
     device:   sounddevice input device number or name (default: the system's default input).
-    on_block: optional function called about 5 times a second with (loudness, note_strength),
-              where loudness is the RMS level of the microphone and note_strength (0 to 1) is
-              how sure the model is that it just heard one of the key's notes. For showing
-              what the receiver is hearing while it waits.
+    on_block: optional function called about 5 times a second with (loudness, note_strength, receiver):
+              the RMS level of the microphone, how sure the model is (0 to 1) that it just heard
+              one of the key's notes, and the MessageReceiver itself. For showing what is being heard.
     """
+    import queue
     import sounddevice as sd
 
     common, receiver = _message_receiver()
+    receiver.dropped = 0   # times the sound card had to throw audio away
     block = 8 * common.HOP  # ~0.19 s of audio at a time
-    with sd.InputStream(samplerate=common.SR, channels=1, blocksize=block, device=device) as stream:
+    waiting = queue.Queue()
+
+    # The sound card hands audio to this function on its own thread. It only queues it, so
+    # no audio is lost if the model is slower than real time; decoding just runs a little late.
+    def capture(samples, frames, time_info, status):
+        if status.input_overflow:
+            receiver.dropped += 1
+        waiting.put(samples[:, 0].copy())
+
+    with sd.InputStream(samplerate=common.SR, channels=1, blocksize=block, device=device, callback=capture):
         while not receiver.finished:
-            samples, _ = stream.read(block)
-            new_text = receiver.add_audio(samples[:, 0])
+            samples = waiting.get()
+            while not waiting.empty():          # catch up if we have fallen behind
+                samples = np.concatenate([samples, waiting.get_nowait()])
+            new_text = receiver.add_audio(samples)
             if on_block is not None:
                 recent = receiver.probs[:, -8:]
-                on_block(float(np.sqrt(np.mean(samples ** 2))), float(recent.max()) if recent.size else 0.0)
+                on_block(float(np.sqrt(np.mean(samples ** 2))), float(recent.max()) if recent.size else 0.0, receiver)
             if new_text:
                 yield new_text
 
@@ -293,7 +305,7 @@ def _run_message_cli(device):
 
     state = {'text': '', 'silent_blocks': 0, 'warned': False, 'started': False}
 
-    def show(loudness, note_strength):
+    def show(loudness, note_strength, receiver):
         if not state['started']:
             state['started'] = True
             print('Listening. Waiting for a message... (Ctrl+C to stop)\n', flush=True)
@@ -303,9 +315,17 @@ def _run_message_cli(device):
             print('\nThe microphone is giving complete silence. Check that this terminal is allowed to use '
                   'the microphone,\nthat the microphone is not muted, and that the right one is selected '
                   '(python Receiver.py --devices).', flush=True)
-        bar = '#' * min(30, int(loudness * 600))
-        print('\rlevel %-30s  note heard %3d%%  message: %s' % (bar, round(note_strength * 100), state['text'].replace('\n', ' ')),
-              end='', flush=True)
+        bar = '#' * min(20, int(loudness * 400))
+        if state['text'] or receiver.clock is not None:
+            detail = 'message: ' + state['text'].replace('\n', ' ')
+        else:
+            # Not started yet: show the last notes heard and the seconds between them.
+            # A real message looks like "F#4 0.6 A#5 0.6 C#4 0.6 F#4 0.6 ..." (gaps of 0.3 or 0.6).
+            notes = receiver.heard[-6:]
+            detail = 'heard: ' + ' '.join(('%.1f ' % (t - notes[i - 1][0]) if i else '') + name
+                                          for i, (t, name) in enumerate(notes))
+        lost = '  LOST AUDIO x%d' % receiver.dropped if receiver.dropped else ''
+        print('\rlevel %-20s note %3d%%%s  %-60s' % (bar, round(note_strength * 100), lost, detail), end='', flush=True)
 
     try:
         for text in listen_message(device, on_block=show):

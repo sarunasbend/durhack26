@@ -324,12 +324,14 @@ class MessageReceiver:
         self.table = decoder.decoding_table
         self.size = decoder.configuration.cluster_size
         self.first_notes = {key.split(',')[0] for key in self.table}  # notes a character can start with
+        self.first_rows = [i for i, name in enumerate(self.names) if name in self.first_notes]
         self.gaps = rhythm_gaps(composer)
 
         self.audio = np.zeros(0, dtype=np.float32)   # audio not yet fully analysed
         self.audio_frame = 0                          # frame number of self.audio[0]
         self.probs = np.zeros((len(self.names), 0), dtype=np.float32)  # model output for every frame so far
         self.scan = 0                                 # next frame to check for the first note
+        self.heard = []                               # last few notes heard while waiting: (seconds, name)
         self._reset()
 
     def _reset(self):
@@ -391,10 +393,17 @@ class MessageReceiver:
                 t = self.scan
                 self.scan += 1
                 nearby = self.probs[:, max(0, t - PEAK_DISTANCE):t + PEAK_DISTANCE + 1]
-                if self.probs[:, t].max() < PEAK_THRESHOLD or self.probs[:, t].max() < nearby.max():
+                if self.probs[:, t].max() >= PEAK_THRESHOLD and self.probs[:, t].max() >= nearby.max():
+                    # Keep a short log of what is being heard, for showing while waiting.
+                    self.heard = (self.heard + [(t * FRAME, self.names[int(self.probs[:, t].argmax())])])[-10:]
+                # A possible first note: a clear peak on a note that can start a character. It need
+                # not be the strongest note at that moment, because the drone starts with it and
+                # the drone's overtone can be louder.
+                first = max(self.first_rows, key=lambda row: self.probs[row, t])
+                if self.probs[first, t] < PEAK_THRESHOLD or self.probs[first, t] < nearby[first].max():
                     continue
                 heard = [self._look(int(round(t + c))) for c in check]
-                heard.insert(0, (self.names[int(self.probs[:, t].argmax())], 1.0, t))
+                heard.insert(0, (self.names[first], 1.0, t))
                 starts_ok = all(heard[i][0] in self.first_notes for i in range(0, len(heard), self.size))
                 clear = sum(strength >= PEAK_THRESHOLD for _, strength, _ in heard)
                 if starts_ok and clear >= len(heard) - 1:

@@ -3,16 +3,16 @@
 Where things stand: the receiver has one model per instrument, and each model reads every key.
 The only one trained so far is Electric Piano 1 (program 4, `training/models/instrument_004.pt`).
 On 8 held-out recordings in 5 keys it gets 956 of 960 notes right (4 character errors in 320).
-All of that was measured on one MacBook's speaker into its own microphone. Nothing here has
-been run live between two devices.
+All of that was measured on one MacBook's speaker into its own microphone. It has also been run live from the Mac to a
+Windows laptop, which decoded the message fully.
 
 ## Must do before the demo
 
 Step-by-step instructions for the two laptops are in `TWO_LAPTOPS.md`.
 
 - [ ] **Commit the work.** Nothing from this session is committed yet (branch `Receiver`).
-- [ ] **Live test between the two real devices.** Sender runs `python main.py`, receiver runs
-      `python Receiver.py --message`. Expect it to be worse than the recorded tests at first.
+- [x] **Live test between the two real devices.** Done: Mac sender to Windows receiver with the detachable mic
+      decodes fully, once Windows "Audio enhancements" is turned off for the mic.
 - [ ] **Record takes on the real sender/receiver pair and retrain.** A different speaker, microphone
       or system synth can sound different from the training data.
       `python training/collect.py --noise 45 --takes 24`, then `python training/train.py`. About 35 minutes.
