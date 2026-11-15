@@ -72,15 +72,28 @@ FLASH_TIME = 0.35                            # Joe stays lit this long after a n
 PARTICLE_LIFE = 1.1
 
 
+START_MARK = "`"                             # Encoder puts this before every message
+
+
+def after_start_mark(decoded):
+    """The message proper: everything after the first start mark, or '' if it has not arrived yet.
+
+    The sender begins every message with a backtick. Nothing is shown until it has been
+    decoded, and the mark itself is never shown. Anything decoded before it is dropped.
+    """
+    at = decoded.find(START_MARK)
+    return decoded[at + 1:] if at >= 0 else ""
+
+
 # ============================================================================ sources
 class MicSource:
     """Microphone + trained model, run in a background thread.
 
     Attributes read by the UI (all plain values, swapped atomically):
-        status   'loading model', 'listening', 'receiving', 'done', 'error: ...'
+        status   'loading model', 'listening', 'waiting for start', 'receiving', 'done', 'error: ...'
         level    0..1 loudness right now
         notes    note names heard so far in the current message
-        text     decoded text of the current message
+        text     decoded text of the current message, from after its start mark
         active   True while a message is being received
         history  texts of finished messages
         device   name of the microphone
@@ -138,14 +151,16 @@ class MicSource:
                         continue
                     receiver.add_audio(mono)
                     self.notes = list(receiver.notes)
-                    self.text = receiver.text
+                    self.text = after_start_mark(receiver.text)
                     self.active = receiver.clock is not None
                     if receiver.finished:
                         self.status = "done"
-                        self.history.append(receiver.text)
+                        if self.text:
+                            self.history.append(self.text)
                         done_at = time.perf_counter()
                     elif self.active:
-                        self.status = "receiving"
+                        # notes are arriving, but nothing counts until the start mark is decoded
+                        self.status = "receiving" if START_MARK in receiver.text else "waiting for start"
         except Exception as exc:                      # no model, no mic, torch missing...
             self.error = str(exc)
             self.status = f"error: {exc}"
@@ -214,8 +229,9 @@ class DemoSource:
         if n != len(self.notes):
             self.notes = self.encoded[:n]
             sure = self.notes[: len(self.notes) // self.size * self.size]
-            self.text = "".join(self.table.get(",".join(sure[i:i + self.size]), "?")
-                                for i in range(0, len(sure), self.size))
+            decoded = "".join(self.table.get(",".join(sure[i:i + self.size]), "?")
+                              for i in range(0, len(sure), self.size))
+            self.text = after_start_mark(decoded)
         sounding = any(s <= t < s + m["duration"] * 60 / Settings.TEMPO for s, m in zip(self.starts, self.metadata))
         self.level = 0.8 if sounding else 0.0
         was_active = self.active
@@ -224,7 +240,7 @@ class DemoSource:
             self.history.append(self.text)
             self.status = "done"
         elif self.active:
-            self.status = "receiving"
+            self.status = "receiving" if len(self.notes) >= self.size else "waiting for start"   # the mark is the first character
 
 
 # ============================================================================ planet
@@ -686,6 +702,7 @@ class ReceiverPlanet(MonsterLand):
         status = src.status if src else "starting"
         pretty = {"loading model": "loading the ear model...",
                   "listening": "listening, waiting for a message",
+                  "waiting for start": "hearing notes, waiting for the start signal",
                   "receiving": "receiving",
                   "done": "message complete",
                   "demo": "demo"}.get(status, status)
