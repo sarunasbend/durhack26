@@ -31,30 +31,30 @@ class SenderGUI:
 
         current_dir = os.path.dirname(os.path.abspath(__file__))
 
-        # Load background image from assets folder
-        bg_path = os.path.join(current_dir, "assets", "space.png")
+        bg_path = os.path.join(current_dir, "assets", "stars.gif")
         if not os.path.exists(bg_path):
-            bg_path = os.path.join("assets", "space.png")
+            bg_path = os.path.join("assets", "stars.gif")
 
+        self.bg_image = None
         if os.path.exists(bg_path):
             try:
-                raw_bg = pygame.image.load(bg_path)
-                raw_bg = pygame.transform.rotate(raw_bg, 90)
-                self.bg_image = pygame.transform.scale(raw_bg, (self.width, self.height))
+                self.bg_image = pygame.image.load(bg_path)
+                self.bg_image = pygame.transform.scale(self.bg_image, (self.width, self.height))
             except Exception as e:
-                print(f"Failed to load background image: {e}")
+                print(e)
                 self.bg_image = None
-        else:
-            self.bg_image = None
 
-        # Auto-generate frames if planet.gif is newer or frames folder is empty
         self._ensure_planet_frames(current_dir)
 
-        # Load animated planet frames
         self.planet_frames = []
-        self.planet_frame_duration = 100  # Default ms per frame
+        self.planet_frame_duration = 100
         self.current_planet_frame = 0
         self.last_frame_time = pygame.time.get_ticks()
+
+        self.stars_frames = []
+        self.stars_frame_duration = 100
+        self.current_stars_frame = 0
+        self.last_stars_frame_time = pygame.time.get_ticks()
 
         frames_dir = os.path.join(current_dir, "assets", "planet_frames")
         if not os.path.exists(frames_dir):
@@ -80,7 +80,6 @@ class SenderGUI:
                 except Exception as e:
                     print(f"Failed to load frame {f}: {e}")
 
-        # Fallback if frames folder is empty: load directly via PIL or single frame
         if not self.planet_frames:
             gif_path = os.path.join(current_dir, "assets", "planet.gif")
             if not os.path.exists(gif_path):
@@ -110,6 +109,61 @@ class SenderGUI:
                     except Exception as e:
                         print(f"Failed to load planet.gif with pygame: {e}")
 
+        star_frames_dir = os.path.join(current_dir, "assets", "star_frames")
+        if not os.path.exists(star_frames_dir):
+            star_frames_dir = os.path.join("assets", "star_frames")
+
+        star_duration_file = os.path.join(star_frames_dir, "duration.txt")
+        if os.path.exists(star_duration_file):
+            try:
+                with open(star_duration_file, "r") as df:
+                    self.stars_frame_duration = int(df.read().strip())
+            except Exception:
+                self.stars_frame_duration = 100
+
+        if os.path.isdir(star_frames_dir):
+            frame_files = sorted([
+                f for f in os.listdir(star_frames_dir)
+                if f.lower().endswith((".png", ".jpg"))
+            ])
+            for f in frame_files:
+                try:
+                    surf = pygame.image.load(os.path.join(star_frames_dir, f)).convert_alpha()
+                    surf = pygame.transform.scale(surf, (self.width, self.height))
+                    self.stars_frames.append(surf)
+                except Exception as e:
+                    print(f"Failed to load frame {f}: {e}")
+
+        if not self.stars_frames:
+            gif_path = os.path.join(current_dir, "assets", "stars.gif")
+            if not os.path.exists(gif_path):
+                gif_path = os.path.join("assets", "stars.gif")
+
+            if os.path.exists(gif_path):
+                if HAS_PIL:
+                    try:
+                        pil_gif = Image.open(gif_path)
+                        self.stars_frame_duration = pil_gif.info.get("duration", 100) or 100
+                        for frame in ImageSequence.Iterator(pil_gif):
+                            rgba_frame = frame.convert("RGBA")
+                            data = rgba_frame.tobytes()
+                            size = rgba_frame.size
+                            if hasattr(pygame.image, "frombytes"):
+                                surf = pygame.image.frombytes(data, size, "RGBA")
+                            else:
+                                surf = pygame.image.fromstring(data, size, "RGBA")
+                            surf = pygame.transform.scale(surf.convert_alpha(), (self.width, self.height))
+                            self.stars_frames.append(surf)
+                    except Exception as e:
+                        print(f"Failed to load stars.gif with PIL: {e}")
+
+                if not self.stars_frames:
+                    try:
+                        single_frame = pygame.image.load(gif_path).convert_alpha()
+                        single_frame = pygame.transform.scale(single_frame, (self.width, self.height))
+                        self.stars_frames = [single_frame]
+                    except Exception as e:
+                        print(f"Failed to load stars.gif with pygame: {e}")
 
         self.planet_radius = 150
         self.planet_x = float(self.width // 2)
@@ -121,11 +175,10 @@ class SenderGUI:
         self.is_hovered = False
         self.glow_alpha = 0.0
 
-        # Scene management: "planet", "transitioning", "green"
         self.scene = "planet"
         self.green_color = (34, 139, 34)
         self.transition_start_time = 0
-        self.transition_duration = 750  # milliseconds for zoom & flash
+        self.transition_duration = 750
 
         self._running = True
 
@@ -170,9 +223,7 @@ class SenderGUI:
             except Exception as e:
                 print(f"[SenderGUI] Failed to auto-generate frames with PIL: {e}")
 
-    # generates midi file
     def _generate_midi(self, notes, metadata):
-        # Tempo and drone come from Settings.py, which the receiver reads too.
         self.transmitter.tempo = Settings.TEMPO
         self.transmitter.drone = Settings.DRONE
 
@@ -183,7 +234,6 @@ class SenderGUI:
     def _configure(self):
         pass
 
-    # plays sound of midi file
     def _transmit(self, blocking=False):
         try:
             if not pygame.mixer.get_init():
@@ -204,12 +254,10 @@ class SenderGUI:
     def _on_button_click(self):
         print(f"[SenderGUI] Button clicked! Current input: {getattr(self, 'input_text', '')}")
 
-
     def on_hover(self):
         pass
 
     def _update_hover(self):
-        # Disable hover outside the planet scene
         if self.scene != "planet":
             self.is_hovered = False
             self.glow_alpha = 0.0
@@ -254,14 +302,24 @@ class SenderGUI:
 
         self.screen.blit(glow_surf, glow_surf.get_rect(center=center_pos))
 
+    def _draw_background(self):
+        if self.stars_frames:
+            now = pygame.time.get_ticks()
+            if now - self.last_stars_frame_time >= self.stars_frame_duration:
+                steps = (now - self.last_stars_frame_time) // self.stars_frame_duration
+                self.current_stars_frame = (self.current_stars_frame + steps) % len(self.stars_frames)
+                self.last_stars_frame_time = now - ((now - self.last_stars_frame_time) % self.stars_frame_duration)
+            self.screen.blit(self.stars_frames[self.current_stars_frame], (0, 0))
+        elif self.bg_image:
+            self.screen.blit(self.bg_image, (0, 0))
+        else:
+            self.screen.fill((20, 20, 35))
+
     def _draw_transition(self):
         elapsed = pygame.time.get_ticks() - self.transition_start_time
         p = min(1.0, elapsed / self.transition_duration)
 
-        if self.bg_image:
-            self.screen.blit(self.bg_image, (0, 0))
-        else:
-            self.screen.fill((20, 20, 35))
+        self._draw_background()
 
         if self.planet_frames:
             current_frame = self.planet_frames[self.current_planet_frame]
@@ -308,10 +366,7 @@ class SenderGUI:
 
         self._update_hover()
 
-        if self.bg_image:
-            self.screen.blit(self.bg_image, (0, 0))
-        else:
-            self.screen.fill((20, 20, 35))
+        self._draw_background()
 
         planet_pos = (int(self.planet_x), int(self.planet_y))
         self._draw_planet_glow(planet_pos)
@@ -337,7 +392,6 @@ class SenderGUI:
         pygame.display.flip()
 
     def run(self):
-        # temp 
         message = "Hello earth, this is your first contact with an alien."
         encoded, metadata = self.encoder.encode_message(message)
         self._generate_midi(encoded, metadata)

@@ -25,3 +25,7 @@ debug_encode.txt
 # Copy training/data/ between machines by hand; training/model.pt is kept in git.
 training/data/
 training/archive_*/
+
+*.mid
+planet_frames/
+star_frames/
